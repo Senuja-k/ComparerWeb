@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📊 SKU Comparer</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background-color: #f8fafc; margin: 0; padding: 30px; display: flex; flex-direction: column; align-items: center; }
+        h1 { font-size: 32px; color: #1e1e1e; margin-bottom: 10px; }
+        p.subtitle { text-align: center; color: #787878; max-width: 650px; margin-bottom: 40px; }
+        .drop-container { display: flex; gap: 25px; width: 100%; max-width: 1100px; margin-bottom: 40px; }
+        .drop-area { flex: 1; background-color: #ffffff; border: 2px dashed #dee2e6; border-radius: 12px; padding: 30px; text-align: center; position: relative; min-height: 250px; cursor: pointer; transition: all 0.2s; }
+        .drop-area.dragover { border-color: #4a6dff; background-color: #f5f9ff; }
+        .drop-area h2 { margin: 0; font-size: 20px; margin-bottom: 10px; }
+        .drop-area p { font-size: 14px; color: #787878; }
+        .file-list { margin-top: 15px; text-align: left; max-height: 150px; overflow-y: auto; }
+        .file-item { background-color: #f5f9ff; border-radius: 6px; padding: 6px 10px; margin-bottom: 6px; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }
+        .file-item span.remove { cursor: pointer; color: #ff6b6b; font-weight: bold; }
+        .generate-btn { background-color: #4a6dff; color: white; font-weight: bold; font-size: 16px; border: none; border-radius: 20px; padding: 15px 40px; cursor: pointer; transition: background-color 0.2s; }
+        .generate-btn:disabled { background-color: #c8c8c8; cursor: not-allowed; }
+        .generate-btn:hover:not(:disabled) { background-color: #2f4cff; }
+        .progress-container { width: 100%; max-width: 1100px; margin-top: 20px; text-align: center; }
+        .progress-bar { width: 100%; height: 20px; background-color: #e9ecef; border-radius: 10px; overflow: hidden; margin-bottom: 10px; }
+        .progress-fill { width: 0%; height: 100%; background-color: #4a6dff; transition: width 0.3s; }
+        .status-label { font-size: 14px; color: #787878; }
+    </style>
+</head>
+<body>
+
+<h1>📊 SKU Comparer</h1>
+<p class="subtitle">
+    Drag your <b style="color:#4a6dff;">Location Files</b> on the left and <b style="color:#28b692;">Unlisted Files</b> on the right.<br>
+    Compare product SKUs across different locations.
+</p>
+
+<div class="drop-container">
+    <div id="location-drop" class="drop-area">
+        <h2>📦 Location Files</h2>
+        <p>Drop multiple location Excel files here (.xlsx, .xls)</p>
+        <div class="file-list" id="location-list"></div>
+    </div>
+    <div id="unlisted-drop" class="drop-area">
+        <h2>📝 Unlisted Files</h2>
+        <p>Drop multiple unlisted Excel files here (.xlsx, .xls)</p>
+        <div class="file-list" id="unlisted-list"></div>
+    </div>
+</div>
+
+<div style="margin-bottom:20px;">
+    <label><input type="checkbox" id="ogfActive"> Activate OGF Rule</label>
+</div>
+
+<button id="generate-btn" class="generate-btn" disabled>🚀 Generate Comparison Report</button>
+
+<div class="progress-container">
+    <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+    <div class="status-label" id="status-label">Ready to process files</div>
+</div>
+
+<script>
+    const locationDrop = document.getElementById('location-drop');
+    const unlistedDrop = document.getElementById('unlisted-drop');
+    const locationList = document.getElementById('location-list');
+    const unlistedList = document.getElementById('unlisted-list');
+    const generateBtn = document.getElementById('generate-btn');
+    const progressFill = document.getElementById('progress-fill');
+    const statusLabel = document.getElementById('status-label');
+    const ogfActiveCheckbox = document.getElementById('ogfActive');
+
+    let locationFiles = [];
+    let unlistedFiles = [];
+
+    function updateGenerateButton() {
+        generateBtn.disabled = locationFiles.length === 0;
+    }
+
+    function createFileItem(file, list) {
+        const div = document.createElement('div');
+        div.className = 'file-item';
+        div.textContent = file.name.replace(/\.(xlsx|xls)$/i, '');
+        const remove = document.createElement('span');
+        remove.className = 'remove';
+        remove.textContent = '✖';
+        remove.onclick = () => {
+            list.removeChild(div);
+            if(list===locationList) locationFiles = locationFiles.filter(f => f !== file);
+            else unlistedFiles = unlistedFiles.filter(f => f !== file);
+            updateGenerateButton();
+        };
+        div.appendChild(remove);
+        list.appendChild(div);
+    }
+
+    function handleDrop(event, isLocation) {
+        event.preventDefault();
+        const files = [...event.dataTransfer.files].filter(f => f.name.match(/\.(xlsx|xls)$/i));
+        if(files.length === 0) return;
+
+        files.forEach(f => {
+            if(isLocation && !locationFiles.includes(f)) { locationFiles.push(f); createFileItem(f, locationList); }
+            if(!isLocation && !unlistedFiles.includes(f)) { unlistedFiles.push(f); createFileItem(f, unlistedList); }
+        });
+
+        updateGenerateButton();
+        event.target.classList.remove('dragover');
+    }
+
+    [locationDrop, unlistedDrop].forEach(dropArea => {
+        dropArea.addEventListener('dragover', e => { e.preventDefault(); dropArea.classList.add('dragover'); });
+        dropArea.addEventListener('dragleave', e => dropArea.classList.remove('dragover'));
+    });
+
+    locationDrop.addEventListener('drop', e => handleDrop(e, true));
+    unlistedDrop.addEventListener('drop', e => handleDrop(e, false));
+
+    generateBtn.addEventListener('click', async () => {
+        const formData = new FormData();
+
+        // Always send location files
+        locationFiles.forEach(f => formData.append('locationFiles', f));
+
+        // Only send unlistedFiles if there are actual files
+        if (unlistedFiles.length > 0) {
+            unlistedFiles.forEach(f => formData.append('unlistedFiles', f));
+        }
+        // If no unlisted files, don't send the parameter at all
+
+        formData.append('ogfRulesChecked', ogfActiveCheckbox.checked);
+
+        statusLabel.textContent = 'Processing comparison... Please wait.';
+        progressFill.style.width = '0%';
+
+        try {
+            const response = await fetch('http://localhost:8080/api/comparer/generate', {
+                method: 'POST',
+                body: formData
+            });
+
+            if(!response.ok) throw new Error('Failed to generate report');
+
+            const blob = await response.blob();
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = 'SKU_Comparison_Report.xlsx';
+            link.click();
+
+            progressFill.style.width = '100%';
+            statusLabel.textContent = '✅ Report generated successfully!';
+        } catch(err) {
+            console.error(err);
+            statusLabel.textContent = '❌ Error: ' + err.message;
+            progressFill.style.width = '0%';
+        }
+    });
+</script>
+
+</body>
+</html>

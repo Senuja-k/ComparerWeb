@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Comparer Dashboard</title>
+
+    <style>
+        body {
+          font-family: "Segoe UI", sans-serif;
+          margin: 0;
+          background: linear-gradient(180deg, #f8fafc, #f0f5ff);
+          color: #1e1e1e;
+          text-align: center;
+          min-height: 100vh;
+          display: flex;
+          flex-direction: column;
+        }
+
+        .header {
+          padding: 40px 20px 20px;
+        }
+
+        .header h1 {
+          font-size: 36px;
+          background: linear-gradient(90deg, #4a6dff, #28b692);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          margin: 0;
+        }
+
+        .header p {
+          font-size: 15px;
+          color: #787878;
+          margin-top: 8px;
+        }
+
+        .cards-container {
+          flex: 1;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          padding: 0 20px 20px;
+        }
+
+        .cards {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 20px;
+          max-width: 900px;
+          width: 100%;
+        }
+
+        .card {
+          background: white;
+          border: 3px solid transparent;
+          border-radius: 16px;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+          padding: 20px;
+          text-align: left;
+          transition: transform 0.2s ease, box-shadow 0.2s ease;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          height: 120px;
+        }
+
+        .card:hover {
+          transform: translateY(-3px);
+          box-shadow: 0 6px 14px rgba(0, 0, 0, 0.1);
+        }
+
+        .card .text {
+          max-width: 75%;
+        }
+
+        .card h2 {
+          font-size: 18px;
+          margin: 0 0 8px 0;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .card p {
+          color: #787878;
+          margin: 0;
+          font-size: 14px;
+          line-height: 1.4;
+        }
+
+        .arrow {
+          font-size: 22px;
+          font-weight: bold;
+          color: #4a6dff;
+        }
+
+        footer {
+          padding: 15px;
+          color: #aaa;
+          font-size: 14px;
+        }
+
+        /* Responsive design for smaller screens */
+        @media (max-width: 768px) {
+          .cards {
+            grid-template-columns: 1fr;
+            max-width: 500px;
+          }
+
+          .card {
+            height: auto;
+            min-height: 100px;
+          }
+        }
+    </style>
+</head>
+<body>
+<div class="header">
+    <h1>Comparer Dashboard</h1>
+    <p>Select a comparison tool to begin inventory analysis</p>
+</div>
+
+<div class="cards-container">
+    <div class="cards">
+        <div class="card" style="border-color: #4a6dff;" onclick="openTool('sku')">
+            <div class="text">
+                <h2><span>🔍</span> SKU & Product Matcher</h2>
+                <p>Match and compare product SKUs across different inventory systems</p>
+            </div>
+            <div class="arrow">→</div>
+        </div>
+
+        <div class="card" style="border-color: #28b692;" onclick="openTool('price')">
+            <div class="text">
+                <h2><span>💰</span> Price Difference Checker</h2>
+                <p>Identify price differences and inconsistencies across platforms</p>
+            </div>
+            <div class="arrow">→</div>
+        </div>
+
+        <div class="card" style="border-color: #ff6b6b;" onclick="openTool('loyalty')">
+            <div class="text">
+                <h2><span>👑</span> Loyalty Comparer</h2>
+                <p>Compare loyalty programs, points systems, and customer rewards</p>
+            </div>
+            <div class="arrow">→</div>
+        </div>
+
+        <div class="card" style="border-color: #ffa726;" onclick="openTool('po-stock')">
+            <div class="text">
+                <h2><span>📊</span> PO-Stock Tally</h2>
+                <p>Compare purchase orders with stock levels and identify discrepancies</p>
+            </div>
+            <div class="arrow">→</div>
+        </div>
+    </div>
+</div>
+
+<footer>
+    <p>© 2025 Inventory Comparison Tool</p>
+</footer>
+
+<script>
+    function openTool(tool) {
+      switch (tool) {
+        case 'sku':
+          window.location.href = 'sku-comparer.html';
+          break;
+        case 'price':
+          window.location.href = 'price-comparer.html';
+          break;
+        case 'loyalty':
+          window.location.href = 'loyalty-comparer.html';
+          break;
+        case 'po-stock':
+          window.location.href = 'po-stock-tally.html';
+          break;
+      }
+    }
+</script>
+</body>
+</html>

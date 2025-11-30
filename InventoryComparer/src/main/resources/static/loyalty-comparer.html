@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Loyalty Comparer</title>
+    <style>
+        /* ---- Colors ---- */
+        :root {
+            --primary-color: #9333ea;
+            --secondary-color: #ff9f1c;
+            --background-color: #f8fafc;
+            --card-color: #ffffff;
+            --text-primary: #1e1e1e;
+            --text-secondary: #787878;
+            --hover-color: #f5f9ff;
+            --success-color: #28a745;
+            --warning-color: #ffc107;
+        }
+
+        body {
+            font-family: "Segoe UI", sans-serif;
+            margin: 0;
+            background-color: var(--background-color);
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 25px;
+        }
+
+        h1 {
+            text-align: center;
+            font-size: 32px;
+            color: var(--text-primary);
+        }
+
+        h2 {
+            text-align: center;
+            font-size: 16px;
+            color: var(--text-secondary);
+            margin-bottom: 40px;
+        }
+
+        .drop-area-container {
+            display: flex;
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+
+        .drop-area {
+            flex: 1;
+            background-color: var(--card-color);
+            padding: 30px;
+            border: 2px solid #dee2e6;
+            border-radius: 12px;
+            text-align: center;
+            min-height: 250px;
+            position: relative;
+            transition: box-shadow 0.3s;
+        }
+
+        .drop-area.dragover {
+            box-shadow: 0 0 20px rgba(147,51,234,0.3);
+        }
+
+        .drop-area h3 {
+            margin-top: 0;
+            font-size: 20px;
+            color: var(--primary-color);
+        }
+
+        .drop-area-location h3 {
+            color: var(--secondary-color);
+        }
+
+        .file-list {
+            margin-top: 15px;
+            list-style: none;
+            padding: 0;
+            max-height: 180px;
+            overflow-y: auto;
+        }
+
+        .file-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px 10px;
+            border-radius: 8px;
+            background-color: var(--hover-color);
+            margin-bottom: 5px;
+        }
+
+        .file-item span {
+            font-size: 14px;
+        }
+
+        .remove-btn {
+            cursor: pointer;
+            font-weight: bold;
+            color: var(--secondary-color);
+        }
+
+        .generate-btn {
+            display: block;
+            margin: 0 auto;
+            padding: 15px 35px;
+            font-size: 15px;
+            font-weight: bold;
+            color: #fff;
+            background-color: var(--primary-color);
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        .generate-btn:disabled {
+            background-color: #c8c8c8;
+            cursor: not-allowed;
+        }
+
+        .generate-btn:hover:enabled {
+            background-color: #7a1bbf;
+        }
+
+        .status {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+
+        progress {
+            width: 100%;
+            height: 20px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Loyalty Comparer</h1>
+    <h2>Drag your <span style="color: #9333ea;">Reference Loyalty File</span> on the left and
+        <span style="color: #ff9f1c;">Location Loyalty Files</span> on the right.<br>
+        Compare loyalty programs, points systems, and customer rewards across locations.
+    </h2>
+
+    <div class="drop-area-container">
+        <div id="referenceDrop" class="drop-area">
+            <h3>👑 Reference Loyalty File</h3>
+            <p>Drop a single .xlsx or .xls file here</p>
+            <ul class="file-list" id="referenceList"></ul>
+        </div>
+
+        <div id="locationDrop" class="drop-area drop-area-location">
+            <h3>🏪 Location Loyalty Files</h3>
+            <p>Drop multiple .xlsx or .xls files here</p>
+            <ul class="file-list" id="locationList"></ul>
+        </div>
+    </div>
+
+    <button id="generateBtn" class="generate-btn" disabled>👑 Generate Loyalty Report</button>
+    <div class="status" id="statusText">Ready to process loyalty files</div>
+    <progress id="progressBar" value="0" max="100" style="display:none;"></progress>
+</div>
+
+<script>
+    const referenceDrop = document.getElementById('referenceDrop');
+    const locationDrop = document.getElementById('locationDrop');
+    const referenceList = document.getElementById('referenceList');
+    const locationList = document.getElementById('locationList');
+    const generateBtn = document.getElementById('generateBtn');
+    const statusText = document.getElementById('statusText');
+    const progressBar = document.getElementById('progressBar');
+
+    let referenceFile = null;
+    let locationFiles = [];
+
+    function preventDefaults(e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    function highlight(dropArea) {
+        dropArea.classList.add('dragover');
+    }
+
+    function unhighlight(dropArea) {
+        dropArea.classList.remove('dragover');
+    }
+
+    function handleReferenceDrop(e) {
+        const dt = e.dataTransfer;
+        const files = [...dt.files].filter(f => f.name.endsWith('.xlsx') || f.name.endsWith('.xls'));
+        if (files.length > 0) {
+            referenceFile = files[0];
+            referenceList.innerHTML = `<li class="file-item"><span>👑 ${files[0].name}</span> <span class="remove-btn" onclick="removeReference()">×</span></li>`;
+            updateGenerateButton();
+        }
+    }
+
+    function handleLocationDrop(e) {
+        const dt = e.dataTransfer;
+        const files = [...dt.files].filter(f => f.name.endsWith('.xlsx') || f.name.endsWith('.xls'));
+        files.forEach(file => {
+            locationFiles.push(file);
+            const li = document.createElement('li');
+            li.className = 'file-item';
+            li.innerHTML = `<span>📄 ${file.name}</span> <span class="remove-btn" onclick="removeLocation('${file.name}')">×</span>`;
+            locationList.appendChild(li);
+        });
+        updateGenerateButton();
+    }
+
+    function removeReference() {
+        referenceFile = null;
+        referenceList.innerHTML = '';
+        updateGenerateButton();
+    }
+
+    function removeLocation(name) {
+        locationFiles = locationFiles.filter(f => f.name !== name);
+        const items = [...locationList.children];
+        items.forEach(li => {
+            if (li.querySelector('span').innerText.includes(name)) li.remove();
+        });
+        updateGenerateButton();
+    }
+
+    function updateGenerateButton() {
+        generateBtn.disabled = !(referenceFile && locationFiles.length > 0);
+    }
+
+    async function uploadFiles() {
+        if (!referenceFile || locationFiles.length === 0) return;
+
+        const formData = new FormData();
+        formData.append('referenceFile', referenceFile);
+        locationFiles.forEach(f => formData.append('locationsFiles', f));
+
+        progressBar.style.display = 'block';
+        progressBar.value = 0;
+        statusText.innerText = 'Processing loyalty comparison... Please wait.';
+
+        try {
+            const response = await fetch('http://localhost:8080/loyalty/generateLoyalty', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) throw new Error('Failed to generate report');
+
+            const blob = await response.blob();
+
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = 'Loyalty_Report.xlsx';
+            link.click();
+
+            progressBar.style.display = 'none';
+            statusText.innerText = '✅ Loyalty report generated successfully!';
+        } catch (err) {
+            progressBar.style.display = 'none';
+            statusText.innerText = '❌ Error occurred: ' + err.message;
+            console.error(err);
+        }
+    }
+
+    generateBtn.addEventListener('click', uploadFiles);
+
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        referenceDrop.addEventListener(eventName, preventDefaults, false);
+        locationDrop.addEventListener(eventName, preventDefaults, false);
+    });
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+        referenceDrop.addEventListener(eventName, () => highlight(referenceDrop), false);
+        locationDrop.addEventListener(eventName, () => highlight(locationDrop), false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+        referenceDrop.addEventListener(eventName, () => unhighlight(referenceDrop), false);
+        locationDrop.addEventListener(eventName, () => unhighlight(locationDrop), false);
+    });
+
+    referenceDrop.addEventListener('drop', handleReferenceDrop);
+    locationDrop.addEventListener('drop', handleLocationDrop);
+</script>
+</body>
+</html>

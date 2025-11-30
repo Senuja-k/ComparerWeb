@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📊 PO-Stock Tally</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background-color: #f8fafc; margin: 0; padding: 30px; display: flex; flex-direction: column; align-items: center; }
+        h1 { font-size: 32px; color: #1e1e1e; margin-bottom: 10px; }
+        p.subtitle { text-align: center; color: #787878; max-width: 650px; margin-bottom: 40px; }
+        .drop-container { display: flex; gap: 25px; width: 100%; max-width: 1100px; margin-bottom: 20px; }
+        .drop-area { flex: 1; background-color: #ffffff; border: 2px dashed #dee2e6; border-radius: 12px; padding: 30px; text-align: center; position: relative; min-height: 250px; cursor: pointer; transition: all 0.2s; }
+        .drop-area.dragover { border-color: #ffa726; background-color: #fff9f0; }
+        .drop-area h2 { margin: 0; font-size: 20px; margin-bottom: 10px; }
+        .drop-area p { font-size: 14px; color: #787878; }
+        .file-list { margin-top: 15px; text-align: left; max-height: 150px; overflow-y: auto; }
+        .file-item { background-color: #fff9f0; border-radius: 6px; padding: 6px 10px; margin-bottom: 6px; font-size: 14px; display: flex; justify-content: space-between; align-items: center; }
+        .file-item span.remove { cursor: pointer; color: #ff6b6b; font-weight: bold; }
+        .generate-btn { background-color: #ffa726; color: white; font-weight: bold; font-size: 16px; border: none; border-radius: 20px; padding: 15px 40px; cursor: pointer; transition: background-color 0.2s; }
+        .generate-btn:disabled { background-color: #c8c8c8; cursor: not-allowed; }
+        .generate-btn:hover:not(:disabled) { background-color: #ff9800; }
+        .progress-container { width: 100%; max-width: 1100px; margin-top: 20px; text-align: center; }
+        .progress-bar { width: 100%; height: 20px; background-color: #e9ecef; border-radius: 10px; overflow: hidden; margin-bottom: 10px; }
+        .progress-fill { width: 0%; height: 100%; background-color: #ffa726; transition: width 0.3s; }
+        .status-label { font-size: 14px; color: #787878; }
+
+        /* Exclude SA IDs input/tag UI */
+        .exclude-sa-container { width: 100%; max-width: 1100px; margin-bottom: 25px; }
+        .exclude-sa-container label { font-weight: bold; margin-bottom: 5px; display: block; }
+        .exclude-sa-input-wrapper { display: flex; flex-wrap: wrap; gap: 5px; border: 1px solid #dee2e6; border-radius: 8px; padding: 5px 10px; background: #fff; }
+        .exclude-sa-input-wrapper input { flex: 1; border: none; outline: none; font-size: 14px; padding: 5px; min-width: 120px; }
+        .tag { background: #ffa726; color: white; border-radius: 12px; padding: 4px 10px; display: flex; align-items: center; font-size: 13px; }
+        .tag span.remove-tag { margin-left: 6px; cursor: pointer; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<h1>📊 PO-Stock Tally</h1>
+<p class="subtitle">
+    Drag your <b style="color:#ffa726;">Purchase Order Files</b> on the left and <b style="color:#4a6dff;">Stock Adjustment Files</b> on the right.<br>
+    Compare purchase orders with stock levels and identify discrepancies.
+</p>
+
+<div class="exclude-sa-container">
+    <label for="exclude-sa-input">Exclude Stock Adjustment IDs:</label>
+    <div class="exclude-sa-input-wrapper" id="tag-wrapper">
+        <input type="text" id="exclude-sa-input" placeholder="Type SA IDs and press Enter or paste comma-separated IDs" />
+    </div>
+</div>
+
+<div class="drop-container">
+    <div id="purchase-order-drop" class="drop-area">
+        <h2>📋 Purchase Order Files</h2>
+        <p>Drop multiple purchase order Excel files here (.xlsx, .xls)</p>
+        <div class="file-list" id="purchase-order-list"></div>
+    </div>
+    <div id="stock-adjustment-drop" class="drop-area">
+        <h2>📦 Stock Adjustment Files</h2>
+        <p>Drop multiple stock adjustment Excel files here (.xlsx, .xls)</p>
+        <div class="file-list" id="stock-adjustment-list"></div>
+    </div>
+</div>
+
+<button id="generate-btn" class="generate-btn" disabled>🚀 Generate Tally Report</button>
+
+<div class="progress-container">
+    <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+    <div class="status-label" id="status-label">Ready to process files</div>
+</div>
+
+<script>
+    const purchaseOrderDrop = document.getElementById('purchase-order-drop');
+    const stockAdjustmentDrop = document.getElementById('stock-adjustment-drop');
+    const purchaseOrderList = document.getElementById('purchase-order-list');
+    const stockAdjustmentList = document.getElementById('stock-adjustment-list');
+    const generateBtn = document.getElementById('generate-btn');
+    const progressFill = document.getElementById('progress-fill');
+    const statusLabel = document.getElementById('status-label');
+
+    const excludeSAInput = document.getElementById('exclude-sa-input');
+    const tagList = document.getElementById('tag-wrapper');
+    let excludeSAIds = [];
+
+    let purchaseOrderFiles = [];
+    let stockAdjustmentFiles = [];
+
+    function updateGenerateButton() {
+        generateBtn.disabled = purchaseOrderFiles.length === 0 || stockAdjustmentFiles.length === 0;
+    }
+
+    function createFileItem(file, list) {
+        const div = document.createElement('div');
+        div.className = 'file-item';
+        div.textContent = file.name.replace(/\.(xlsx|xls)$/i, '');
+        const remove = document.createElement('span');
+        remove.className = 'remove';
+        remove.textContent = '✖';
+        remove.onclick = () => {
+            list.removeChild(div);
+            if(list===purchaseOrderList) purchaseOrderFiles = purchaseOrderFiles.filter(f => f !== file);
+            else stockAdjustmentFiles = stockAdjustmentFiles.filter(f => f !== file);
+            updateGenerateButton();
+        };
+        div.appendChild(remove);
+        list.appendChild(div);
+    }
+
+    function handleDrop(event, isPurchaseOrder) {
+        event.preventDefault();
+        const files = [...event.dataTransfer.files].filter(f => f.name.match(/\.(xlsx|xls)$/i));
+        if(files.length === 0) return;
+
+        files.forEach(f => {
+            if(isPurchaseOrder && !purchaseOrderFiles.includes(f)) {
+                purchaseOrderFiles.push(f);
+                createFileItem(f, purchaseOrderList);
+            }
+            if(!isPurchaseOrder && !stockAdjustmentFiles.includes(f)) {
+                stockAdjustmentFiles.push(f);
+                createFileItem(f, stockAdjustmentList);
+            }
+        });
+
+        updateGenerateButton();
+        event.target.classList.remove('dragover');
+    }
+
+    [purchaseOrderDrop, stockAdjustmentDrop].forEach(dropArea => {
+        dropArea.addEventListener('dragover', e => { e.preventDefault(); dropArea.classList.add('dragover'); });
+        dropArea.addEventListener('dragleave', e => dropArea.classList.remove('dragover'));
+    });
+
+    purchaseOrderDrop.addEventListener('drop', e => handleDrop(e, true));
+    stockAdjustmentDrop.addEventListener('drop', e => handleDrop(e, false));
+
+    generateBtn.addEventListener('click', async () => {
+        const formData = new FormData();
+
+        purchaseOrderFiles.forEach(f => formData.append('purchaseOrderFiles', f));
+        stockAdjustmentFiles.forEach(f => formData.append('stockAdjustmentFiles', f));
+
+        // Add exclude SA IDs
+        excludeSAIds.forEach(id => formData.append('excludeSAIds', id));
+
+        statusLabel.textContent = 'Processing tally... Please wait.';
+        progressFill.style.width = '0%';
+
+        try {
+            const response = await fetch('http://localhost:8080/api/po-stock/generate', {
+                method: 'POST',
+                body: formData
+            });
+
+            if(!response.ok) throw new Error('Failed to generate report');
+
+            const blob = await response.blob();
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = 'PO_Stock_Tally_Report.xlsx';
+            link.click();
+
+            progressFill.style.width = '100%';
+            statusLabel.textContent = '✅ Tally report generated successfully!';
+        } catch(err) {
+            console.error(err);
+            statusLabel.textContent = '❌ Error: ' + err.message;
+            progressFill.style.width = '0%';
+        }
+    });
+
+    // --- Exclude SA IDs tag logic ---
+    excludeSAInput.addEventListener('keydown', e => {
+        if(e.key === 'Enter') {
+            e.preventDefault();
+            addTagsFromInput();
+        }
+    });
+
+    excludeSAInput.addEventListener('paste', e => {
+        e.preventDefault();
+        const pasteData = e.clipboardData.getData('text');
+        excludeSAInput.value = pasteData;
+        addTagsFromInput();
+    });
+
+    function addTagsFromInput() {
+        let values = excludeSAInput.value.split(',').map(v => v.trim()).filter(v => v);
+        values.forEach(value => {
+            if(!excludeSAIds.includes(value)) {
+                excludeSAIds.push(value);
+                const tag = document.createElement('div');
+                tag.className = 'tag';
+                tag.textContent = value;
+                const removeSpan = document.createElement('span');
+                removeSpan.className = 'remove-tag';
+                removeSpan.textContent = '✖';
+                removeSpan.onclick = () => {
+                    tagList.removeChild(tag);
+                    excludeSAIds = excludeSAIds.filter(id => id !== value);
+                };
+                tag.appendChild(removeSpan);
+                tagList.appendChild(tag);
+            }
+        });
+        excludeSAInput.value = '';
+    }
+</script>
+
+</body>
+</html>
