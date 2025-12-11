@@ -1,5 +1,5 @@
 package com.example.InventoryComparer.controller;
-
+//version 2
 import com.example.InventoryComparer.logic.LoyaltyComparerLogic;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpHeaders;
