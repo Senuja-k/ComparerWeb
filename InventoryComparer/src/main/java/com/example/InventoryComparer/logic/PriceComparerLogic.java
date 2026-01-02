@@ -579,7 +579,9 @@ public class PriceComparerLogic {
                 if (priceUsed != null) {
                     if (isOgfFile) {
                         // For OGF files, calculate percentage difference
-                        double percentageDiff = ((priceUsed - item.referencePrice()) / item.referencePrice()) * 100;
+                        double referenceValue = item.referenceCompareAtPrice() > 0 ?
+                                item.referenceCompareAtPrice() : item.referencePrice();
+                        double percentageDiff = ((priceUsed - referenceValue) / referenceValue) * 100;
 
                         // NEW: Store OGF percentage for display
                         item.setOgfPercentageDiff(percentageDiff);
@@ -644,8 +646,12 @@ public class PriceComparerLogic {
                     if (isOgfFile && ogfPrice == null) {
                         ogfFileName = fileName;
                         ogfPrice = priceUsed;
-                        if (ogfPrice != null && item.referencePrice() > 0) {
-                            ogfPercentageDiff = ((ogfPrice - item.referencePrice()) / item.referencePrice()) * 100;
+                        if (ogfPrice != null) {
+                            double referenceValue = item.referenceCompareAtPrice() > 0?
+                                    item.referenceCompareAtPrice() : item.referencePrice();
+                            if (referenceValue > 0) {
+                                ogfPercentageDiff = ((ogfPrice - referenceValue) / referenceValue) * 100;
+                            }
                         }
                     }
                 }
