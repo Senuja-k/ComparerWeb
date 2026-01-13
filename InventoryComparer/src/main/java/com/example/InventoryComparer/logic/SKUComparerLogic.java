@@ -144,6 +144,25 @@ public class SKUComparerLogic {
 
         public ItemSourceData getDataForLocation(String locationName) { return sourceData.get(locationName); }
         public boolean isPresentIn(String locationName) { return sourceData.containsKey(locationName); }
+
+        // NEW: Method to get all barcodes from all sources (including empty primary barcode scenarios)
+        public Set<String> getAllSourceBarcodes() {
+            Set<String> allBarcodes = new HashSet<>();
+
+            // Add primary barcode if not empty
+            if (!this.primaryBarcode.isEmpty() && !isPlaceholderValue(this.primaryBarcode)) {
+                allBarcodes.add(this.primaryBarcode.trim().toLowerCase());
+            }
+
+            // Add all barcodes from source data
+            for (ItemSourceData sourceData : this.sourceData.values()) {
+                if (!sourceData.rawBarcode.isEmpty() && !isPlaceholderValue(sourceData.rawBarcode)) {
+                    allBarcodes.add(sourceData.rawBarcode.trim().toLowerCase());
+                }
+            }
+
+            return allBarcodes;
+        }
     }
 
     private static Map<Set<Item>, List<ItemSourceData>> readItems(File file, boolean isTempOgfFile, boolean skipInternalValidation) throws IOException {
@@ -804,12 +823,20 @@ public class SKUComparerLogic {
 
         Map<String, List<Item>> barcodeToItems = new HashMap<>();
 
-        // Group all items by barcode (case-insensitive, ignore empty barcodes)
+        // FIXED: Group all items by ALL barcodes from ALL sources, not just primary barcode
         for (Item item : allItems) {
-            if (!item.primaryBarcode.isEmpty() && !isPlaceholderValue(item.primaryBarcode)) {
-                String normalizedBarcode = item.primaryBarcode.trim().toLowerCase();
-                barcodeToItems.computeIfAbsent(normalizedBarcode, k -> new ArrayList<>()).add(item);
-                System.out.println("DEBUG: Added barcode '" + normalizedBarcode + "' for SKU: " + item.primarySku);
+            // Use the new getAllSourceBarcodes method to get ALL barcodes for this item
+            Set<String> itemBarcodes = item.getAllSourceBarcodes();
+
+            System.out.println("DEBUG: Item " + item.primarySku + " has barcodes: " + itemBarcodes);
+
+            // For each unique barcode of this item, add the item to the map
+            for (String barcode : itemBarcodes) {
+                List<Item> existingList = barcodeToItems.computeIfAbsent(barcode, k -> new ArrayList<>());
+                if (!existingList.contains(item)) {
+                    existingList.add(item);
+                    System.out.println("DEBUG: Added barcode '" + barcode + "' for SKU: " + item.primarySku);
+                }
             }
         }
 
@@ -846,7 +873,6 @@ public class SKUComparerLogic {
                         }
 
                         // Create detailed remark showing all conflicting SKUs
-                        // FIXED: Use traditional loop instead of stream to avoid compilation error
                         List<String> otherSkuList = new ArrayList<>();
                         for (Item other : duplicateItems) {
                             if (!other.primarySku.equals(item.primarySku)) {
@@ -880,11 +906,17 @@ public class SKUComparerLogic {
 
         Map<String, List<Item>> barcodeToItems = new HashMap<>();
 
-        // Group all items by barcode (case-insensitive, ignore empty barcodes)
+        // FIXED: Group all items by ALL barcodes from ALL sources, not just primary barcode
         for (Item item : allItems) {
-            if (!item.primaryBarcode.isEmpty() && !isPlaceholderValue(item.primaryBarcode)) {
-                String normalizedBarcode = item.primaryBarcode.trim().toLowerCase();
-                barcodeToItems.computeIfAbsent(normalizedBarcode, k -> new ArrayList<>()).add(item);
+            // Use the new getAllSourceBarcodes method to get ALL barcodes for this item
+            Set<String> itemBarcodes = item.getAllSourceBarcodes();
+
+            // For each unique barcode of this item, add the item to the map
+            for (String barcode : itemBarcodes) {
+                List<Item> existingList = barcodeToItems.computeIfAbsent(barcode, k -> new ArrayList<>());
+                if (!existingList.contains(item)) {
+                    existingList.add(item);
+                }
             }
         }
 
@@ -1016,6 +1048,7 @@ public class SKUComparerLogic {
 
         // CRITICAL FIX: Store existing duplicate barcode status BEFORE clearing
         boolean hadDuplicateBarcodeBefore = item.conflictStatus.contains("DUPLICATE_BARCODE_ACROSS_SKUS");
+        boolean hadDuplicateBarcodeAcrossItemsBefore = item.conflictStatus.contains("DUPLICATE_BARCODE_ACROSS_ITEMS");
         List<String> existingDuplicateRemarks = new ArrayList<>();
         for (String remark : item.finalRemarks) {
             if (remark.contains("CRITICAL: Barcode") && remark.contains("shared with other SKU")) {
@@ -1033,15 +1066,19 @@ public class SKUComparerLogic {
             item.finalRemarks.addAll(existingDuplicateRemarks);
             System.out.println("DEBUG: RESTORED duplicate barcode status for item: " + item.primarySku);
         }
+        if (hadDuplicateBarcodeAcrossItemsBefore) {
+            if (!item.conflictStatus.isEmpty()) {
+                item.conflictStatus += " + DUPLICATE_BARCODE_ACROSS_ITEMS";
+            } else {
+                item.conflictStatus = "DUPLICATE_BARCODE_ACROSS_ITEMS";
+            }
+        }
 
         // --- Data Quality Checks (applied regardless of rule set) ---
         detectInternalInconsistencies(item);
         detectShortBarcodes(item);
         detectCrossFileDifferences(item);
         boolean hasDataIssues = !item.conflictStatus.isEmpty();
-
-        // --- NEW: Check for critical duplicate barcode issues FIRST ---
-        boolean hasCriticalDuplicateBarcode = item.conflictStatus.contains("DUPLICATE_BARCODE_ACROSS_SKUS");
 
         // --- Determine presence ---
         Set<String> presentLocations = locationNames.stream()
@@ -1057,196 +1094,203 @@ public class SKUComparerLogic {
 
         boolean isBad = false;
         List<String> badReasons = new ArrayList<>();
+        List<String> ruleViolations = new ArrayList<>(); // NEW: Track rule violations separately
 
-        // --- CRITICAL FIX: If this has duplicate barcode issue, skip normal rule checking ---
-        if (hasCriticalDuplicateBarcode) {
-            // For critical duplicate barcode issues, mark as BAD regardless of other rules
-            isBad = true;
-            System.out.println("DEBUG: Item " + item.primarySku + " has CRITICAL duplicate barcode - skipping rule checks");
-        } else {
-            // Only apply normal rules if no critical duplicate barcode issue
-            if (useOgfRules) {
-                // --------------------- OGF RULES ---------------------
-                String ogfLocationFile = locationNames.stream()
-                        .filter(SKUComparerLogic::isOgfName)
-                        .findFirst().orElse(null);
+        // REMOVED: The early exit for duplicate barcodes - now ALWAYS check rules
 
-                String ogfUnlistedFile = unlistedNames.stream()
-                        .filter(SKUComparerLogic::isOgfName)
-                        .findFirst()
-                        .orElse(null);
+        if (useOgfRules) {
+            // --------------------- OGF RULES ---------------------
+            String ogfLocationFile = locationNames.stream()
+                    .filter(SKUComparerLogic::isOgfName)
+                    .findFirst().orElse(null);
 
-                // Get non-OGF unlisted files (all unlisted except OGF unlisted)
-                Set<String> nonOgfUnlisted = unlistedNames.stream()
-                        .filter(unl -> ogfUnlistedFile == null || !unl.equals(ogfUnlistedFile))
-                        .collect(Collectors.toSet());
+            String ogfUnlistedFile = unlistedNames.stream()
+                    .filter(SKUComparerLogic::isOgfName)
+                    .findFirst()
+                    .orElse(null);
 
-                boolean inOgfLoc = ogfLocationFile != null && presentLocations.contains(ogfLocationFile);
-                boolean inOgfUnl = ogfUnlistedFile != null && presentUnlisted.contains(ogfUnlistedFile);
-                boolean inAnyNonOgfUnlisted = nonOgfUnlisted.stream().anyMatch(presentUnlisted::contains);
+            // Get non-OGF unlisted files (all unlisted except OGF unlisted)
+            Set<String> nonOgfUnlisted = unlistedNames.stream()
+                    .filter(unl -> ogfUnlistedFile == null || !unl.equals(ogfUnlistedFile))
+                    .collect(Collectors.toSet());
 
-                // LOGIC 1: OGF unlisted should ONLY be compared to OGF location file
-                // If item is in both OGF location AND OGF unlisted → BAD
-                if (inOgfLoc && inOgfUnl) {
-                    isBad = true;
-                    badReasons.add("OGF item should not appear in both " + ogfLocationFile + " and " + ogfUnlistedFile);
-                }
+            boolean inOgfLoc = ogfLocationFile != null && presentLocations.contains(ogfLocationFile);
+            boolean inOgfUnl = ogfUnlistedFile != null && presentUnlisted.contains(ogfUnlistedFile);
+            boolean inAnyNonOgfUnlisted = nonOgfUnlisted.stream().anyMatch(presentUnlisted::contains);
 
-                // LOGIC 2: Other unlisted files should be compared to ALL location files including OGF location
-                // If item is in any non-OGF unlisted AND in any location (including OGF) → BAD
-                if (inAnyNonOgfUnlisted && !presentLocations.isEmpty()) {
-                    isBad = true;
-                    badReasons.add("Non-OGF unlisted item should not appear in any location files");
-                }
+            // LOGIC 1: OGF unlisted should ONLY be compared to OGF location file
+            // If item is in both OGF location AND OGF unlisted → RULE VIOLATION
+            if (inOgfLoc && inOgfUnl) {
+                ruleViolations.add("OGF item should not appear in both " + ogfLocationFile + " and " + ogfUnlistedFile);
+            }
 
-                // UPDATED LOGIC 3: Location consistency - but account for unlisted rules
-                if (!presentLocations.isEmpty() && !missingLocations.isEmpty()) {
-                    // Check if the missing locations are justified by unlisted rules
-                    boolean hasUnjustifiedMissingLocations = false;
-                    Set<String> unjustifiedMissing = new HashSet<>();
+            // LOGIC 2: Other unlisted files should be compared to ALL location files including OGF location
+            // If item is in any non-OGF unlisted AND in any location (including OGF) → RULE VIOLATION
+            if (inAnyNonOgfUnlisted && !presentLocations.isEmpty()) {
+                ruleViolations.add("Non-OGF unlisted item should not appear in any location files");
+            }
 
-                    for (String missingLoc : missingLocations) {
-                        boolean isOgfLocation = isOgfName(missingLoc);
+            // UPDATED LOGIC 3: Location consistency - but account for unlisted rules
+            if (!presentLocations.isEmpty() && !missingLocations.isEmpty()) {
+                // Check if the missing locations are justified by unlisted rules
+                boolean hasUnjustifiedMissingLocations = false;
+                Set<String> unjustifiedMissing = new HashSet<>();
 
-                        if (isOgfLocation) {
-                            // Missing from OGF location is OK if item is in OGF unlisted
-                            if (!inOgfUnl) {
-                                unjustifiedMissing.add(missingLoc);
-                                hasUnjustifiedMissingLocations = true;
-                            }
-                        } else {
-                            // Missing from non-OGF location is OK if item is in non-OGF unlisted
-                            if (!inAnyNonOgfUnlisted) {
-                                unjustifiedMissing.add(missingLoc);
-                                hasUnjustifiedMissingLocations = true;
-                            }
+                for (String missingLoc : missingLocations) {
+                    boolean isOgfLocation = isOgfName(missingLoc);
+
+                    if (isOgfLocation) {
+                        // Missing from OGF location is OK if item is in OGF unlisted
+                        if (!inOgfUnl) {
+                            unjustifiedMissing.add(missingLoc);
+                            hasUnjustifiedMissingLocations = true;
+                        }
+                    } else {
+                        // Missing from non-OGF location is OK if item is in non-OGF unlisted
+                        if (!inAnyNonOgfUnlisted) {
+                            unjustifiedMissing.add(missingLoc);
+                            hasUnjustifiedMissingLocations = true;
                         }
                     }
-
-                    if (hasUnjustifiedMissingLocations) {
-                        isBad = true;
-                        badReasons.add("Item missing from locations: " + String.join(", ", unjustifiedMissing));
-                    }
                 }
 
-                // LOGIC 4: If item is not in any unlisted file AND not in relevant location file → BAD
-                if (item.isOgfGroupItem) {
-                    if (!inOgfLoc && !inOgfUnl) {
-                        isBad = true;
-                        badReasons.add("OGF item missing from both OGF location and OGF unlisted");
-                    }
-                } else {
-                    if (presentLocations.isEmpty() && !inAnyNonOgfUnlisted) {
-                        isBad = true;
-                        badReasons.add("Non-OGF item missing from all locations and non-OGF unlisted files");
-                    }
-                }
-
-            } else {
-                // --------------------- COSMETICS RULES ---------------------
-                String cosmeticsLocationFile = locationNames.stream()
-                        .filter(name -> cosmeticLocationNames.contains(name)
-                                || name.toUpperCase().contains("COSMETIC")
-                                || name.toUpperCase().contains("COS"))
-                        .findFirst()
-                        .orElse(null);
-
-                String webUnlistedFile = unlistedNames.stream()
-                        .filter(name -> name.toUpperCase().contains("WEB"))
-                        .findFirst()
-                        .orElse(null);
-
-                // Get non-WEB unlisted files (all unlisted except WEB unlisted)
-                Set<String> nonWebUnlisted = unlistedNames.stream()
-                        .filter(unl -> webUnlistedFile == null || !unl.equals(webUnlistedFile))
-                        .collect(Collectors.toSet());
-
-                boolean inCosLoc = cosmeticsLocationFile != null && presentLocations.contains(cosmeticsLocationFile);
-                boolean inWebUnl = webUnlistedFile != null && presentUnlisted.contains(webUnlistedFile);
-                boolean inAnyNonWebUnlisted = nonWebUnlisted.stream().anyMatch(presentUnlisted::contains);
-
-                // LOGIC 1: Cosmetics file should ONLY be compared to WEB unlisted
-                if (inCosLoc && inWebUnl) {
-                    isBad = true;
-                    badReasons.add("Cosmetics item should not appear in both " + cosmeticsLocationFile + " and " + webUnlistedFile);
-                }
-
-                // UPDATED LOGIC 2: Other unlisted files should be compared to NON-COSMETICS locations only
-                if (inAnyNonWebUnlisted) {
-                    Set<String> nonCosmeticsPresentLocations = presentLocations.stream()
-                            .filter(loc -> !cosmeticLocationNames.contains(loc) &&
-                                    !loc.toUpperCase().contains("COSMETIC") &&
-                                    !loc.toUpperCase().contains("COS"))
-                            .collect(Collectors.toSet());
-
-                    if (!nonCosmeticsPresentLocations.isEmpty()) {
-                        isBad = true;
-                        badReasons.add("Non-WEB unlisted item should not appear in non-cosmetics locations: " + String.join(", ", nonCosmeticsPresentLocations));
-                    }
-                }
-
-                // UPDATED LOGIC 3: Location consistency - but account for unlisted rules
-                if (!presentLocations.isEmpty() && !missingLocations.isEmpty()) {
-                    boolean hasUnjustifiedMissingLocations = false;
-                    Set<String> unjustifiedMissing = new HashSet<>();
-
-                    for (String missingLoc : missingLocations) {
-                        boolean isCosmeticsLocation = cosmeticLocationNames.contains(missingLoc) ||
-                                missingLoc.toUpperCase().contains("COSMETIC") ||
-                                missingLoc.toUpperCase().contains("COS");
-
-                        if (isCosmeticsLocation) {
-                            if (!inWebUnl) {
-                                unjustifiedMissing.add(missingLoc);
-                                hasUnjustifiedMissingLocations = true;
-                            }
-                        } else {
-                            if (!inAnyNonWebUnlisted) {
-                                unjustifiedMissing.add(missingLoc);
-                                hasUnjustifiedMissingLocations = true;
-                            }
-                        }
-                    }
-
-                    if (hasUnjustifiedMissingLocations) {
-                        isBad = true;
-                        badReasons.add("Item missing from locations: " + String.join(", ", unjustifiedMissing));
-                    }
-                }
-
-                // LOGIC 4: If item is not in any unlisted file AND not in relevant location file → BAD
-                if (item.isCosmeticsGroupItem) {
-                    if (!inCosLoc && !inWebUnl) {
-                        isBad = true;
-                        badReasons.add("Cosmetics item missing from both cosmetics location and WEB unlisted");
-                    }
-                } else {
-                    if (presentLocations.isEmpty() && presentUnlisted.isEmpty()) {
-                        isBad = true;
-                        badReasons.add("Non-cosmetics item missing from all locations and all unlisted files");
-                    }
+                if (hasUnjustifiedMissingLocations) {
+                    ruleViolations.add("Item missing from locations: " + String.join(", ", unjustifiedMissing));
                 }
             }
+
+            // LOGIC 4: If item is not in any unlisted file AND not in relevant location file → RULE VIOLATION
+            if (item.isOgfGroupItem) {
+                if (!inOgfLoc && !inOgfUnl) {
+                    ruleViolations.add("OGF item missing from both OGF location and OGF unlisted");
+                }
+            } else {
+                if (presentLocations.isEmpty() && !inAnyNonOgfUnlisted) {
+                    ruleViolations.add("Non-OGF item missing from all locations and non-OGF unlisted files");
+                }
+            }
+
+        } else {
+            // --------------------- COSMETICS RULES ---------------------
+            String cosmeticsLocationFile = locationNames.stream()
+                    .filter(name -> cosmeticLocationNames.contains(name)
+                            || name.toUpperCase().contains("COSMETIC")
+                            || name.toUpperCase().contains("COS"))
+                    .findFirst()
+                    .orElse(null);
+
+            String webUnlistedFile = unlistedNames.stream()
+                    .filter(name -> name.toUpperCase().contains("WEB"))
+                    .findFirst()
+                    .orElse(null);
+
+            // Get non-WEB unlisted files (all unlisted except WEB unlisted)
+            Set<String> nonWebUnlisted = unlistedNames.stream()
+                    .filter(unl -> webUnlistedFile == null || !unl.equals(webUnlistedFile))
+                    .collect(Collectors.toSet());
+
+            boolean inCosLoc = cosmeticsLocationFile != null && presentLocations.contains(cosmeticsLocationFile);
+            boolean inWebUnl = webUnlistedFile != null && presentUnlisted.contains(webUnlistedFile);
+            boolean inAnyNonWebUnlisted = nonWebUnlisted.stream().anyMatch(presentUnlisted::contains);
+
+            // LOGIC 1: Cosmetics file should ONLY be compared to WEB unlisted
+            if (inCosLoc && inWebUnl) {
+                ruleViolations.add("Cosmetics item should not appear in both " + cosmeticsLocationFile + " and " + webUnlistedFile);
+            }
+
+            // UPDATED LOGIC 2: Other unlisted files should be compared to NON-COSMETICS locations only
+            if (inAnyNonWebUnlisted) {
+                Set<String> nonCosmeticsPresentLocations = presentLocations.stream()
+                        .filter(loc -> !cosmeticLocationNames.contains(loc) &&
+                                !loc.toUpperCase().contains("COSMETIC") &&
+                                !loc.toUpperCase().contains("COS"))
+                        .collect(Collectors.toSet());
+
+                if (!nonCosmeticsPresentLocations.isEmpty()) {
+                    ruleViolations.add("Non-WEB unlisted item should not appear in non-cosmetics locations: " + String.join(", ", nonCosmeticsPresentLocations));
+                }
+            }
+
+            // UPDATED LOGIC 3: Location consistency - but account for unlisted rules
+            if (!presentLocations.isEmpty() && !missingLocations.isEmpty()) {
+                boolean hasUnjustifiedMissingLocations = false;
+                Set<String> unjustifiedMissing = new HashSet<>();
+
+                for (String missingLoc : missingLocations) {
+                    boolean isCosmeticsLocation = cosmeticLocationNames.contains(missingLoc) ||
+                            missingLoc.toUpperCase().contains("COSMETIC") ||
+                            missingLoc.toUpperCase().contains("COS");
+
+                    if (isCosmeticsLocation) {
+                        if (!inWebUnl) {
+                            unjustifiedMissing.add(missingLoc);
+                            hasUnjustifiedMissingLocations = true;
+                        }
+                    } else {
+                        if (!inAnyNonWebUnlisted) {
+                            unjustifiedMissing.add(missingLoc);
+                            hasUnjustifiedMissingLocations = true;
+                        }
+                    }
+                }
+
+                if (hasUnjustifiedMissingLocations) {
+                    ruleViolations.add("Item missing from locations: " + String.join(", ", unjustifiedMissing));
+                }
+            }
+
+            // LOGIC 4: If item is not in any unlisted file AND not in relevant location file → RULE VIOLATION
+            if (item.isCosmeticsGroupItem) {
+                if (!inCosLoc && !inWebUnl) {
+                    ruleViolations.add("Cosmetics item missing from both cosmetics location and WEB unlisted");
+                }
+            } else {
+                if (presentLocations.isEmpty() && presentUnlisted.isEmpty()) {
+                    ruleViolations.add("Non-cosmetics item missing from all locations and all unlisted files");
+                }
+            }
+        }
+
+        // Mark as bad if we have any rule violations
+        if (!ruleViolations.isEmpty()) {
+            isBad = true;
+            badReasons.addAll(ruleViolations);
         }
 
         // --- Determine final status ---
         if (presentLocations.isEmpty() && presentUnlisted.isEmpty()) {
             item.simpleStatus = "No Data Found - BAD";
             item.finalRemarks.add("Item not found in any location or unlisted files");
-        } else if (isBad) {
-            // CRITICAL FIX: Show duplicate barcode as highest priority issue
-            if (hasCriticalDuplicateBarcode) {
-                item.simpleStatus = "CRITICAL: Duplicate Barcode - BAD";
-                System.out.println("DEBUG: Setting CRITICAL status for item: " + item.primarySku);
+        } else if (isBad || hasDataIssues) {
+            // ENHANCED: Combine all issues in the status
+            StringBuilder statusBuilder = new StringBuilder();
+
+            if (!ruleViolations.isEmpty() && hasDataIssues) {
+                statusBuilder.append("Rule Violation + DATA ISSUES");
+            } else if (!ruleViolations.isEmpty()) {
+                statusBuilder.append("Rule Violation");
             } else if (hasDataIssues) {
-                item.simpleStatus = "Rule Violation + DATA ISSUES - BAD";
-            } else {
-                item.simpleStatus = "Rule Violation - BAD";
+                statusBuilder.append("DATA ISSUES");
             }
-            badReasons.forEach(reason -> item.finalRemarks.add("🚫 " + reason));
-        } else if (hasDataIssues) {
-            item.simpleStatus = "DATA ISSUES - BAD";
-            item.finalRemarks.add("Item has data quality issues (short barcode/duplicates/SKU differences)");
+
+            // Check for specific critical issues
+            if (item.conflictStatus.contains("DUPLICATE_BARCODE_ACROSS_SKUS")) {
+                if (statusBuilder.length() > 0) {
+                    statusBuilder.append(" + ");
+                }
+                statusBuilder.append("CRITICAL: Duplicate Barcode");
+            }
+
+            statusBuilder.append(" - BAD");
+            item.simpleStatus = statusBuilder.toString();
+
+            // Add all bad reasons (rule violations)
+            badReasons.forEach(reason -> item.finalRemarks.add("🚫 RULE VIOLATION: " + reason));
+
+            // Also add data issue remarks if present
+            if (hasDataIssues) {
+                item.finalRemarks.add("⚠️ DATA ISSUE: " + item.conflictStatus);
+            }
         } else {
             item.simpleStatus = "GOOD";
             if (!presentLocations.isEmpty() && presentUnlisted.isEmpty()) {
@@ -1260,16 +1304,18 @@ public class SKUComparerLogic {
 
         // --- Presence info (always add these for clarity) ---
         if (!presentLocations.isEmpty()) {
-            item.finalRemarks.add("Present in locations: " + String.join(", ", presentLocations));
+            item.finalRemarks.add("📋 Present in locations: " + String.join(", ", presentLocations));
         }
         if (!presentUnlisted.isEmpty()) {
-            item.finalRemarks.add("Present in unlisted: " + String.join(", ", presentUnlisted));
+            item.finalRemarks.add("📋 Present in unlisted: " + String.join(", ", presentUnlisted));
         }
         if (!missingLocations.isEmpty() && !presentLocations.isEmpty()) {
-            item.finalRemarks.add("Missing from locations: " + String.join(", ", missingLocations));
+            item.finalRemarks.add("📋 Missing from locations: " + String.join(", ", missingLocations));
         }
 
-        System.out.println("DEBUG: Final status for " + item.primarySku + ": " + item.simpleStatus + " | Conflict: " + item.conflictStatus);
+        System.out.println("DEBUG: Final status for " + item.primarySku + ": " + item.simpleStatus +
+                " | Conflict: " + item.conflictStatus +
+                " | Rule Violations: " + ruleViolations.size());
     }
 
 
