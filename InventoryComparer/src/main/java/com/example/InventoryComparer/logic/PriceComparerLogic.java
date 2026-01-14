@@ -43,6 +43,7 @@ public class PriceComparerLogic {
         private final List<String> nonOgfDiscrepancies; // NEW: Separate non-OGF discrepancies
         private final Map<String, Double> locationDiscountPercentages; // NEW FIELD 1
         private final List<String> discountDiscrepancies;
+        private Double referenceDiscountPercentage; // NEW: Reference discount %
 
         public ReferenceItem(String sku, String productName, double referencePrice, double referenceCompareAtPrice,
                              List<String> discrepancies, Map<String, Double> locationPrices, String status) {
@@ -65,6 +66,7 @@ public class PriceComparerLogic {
             this.nonOgfDiscrepancies = new ArrayList<>(); // NEW: Initialize non-OGF discrepancies
             this.locationDiscountPercentages = new HashMap<>();
             this.discountDiscrepancies = new ArrayList<>();
+            this.referenceDiscountPercentage = null;
         }
 
         public String sku() { return sku; }
@@ -94,6 +96,8 @@ public class PriceComparerLogic {
         public void setOgfPercentageRemark(String ogfPercentageRemark) { this.ogfPercentageRemark = ogfPercentageRemark; }
         public Map<String, Double> locationDiscountPercentages() { return locationDiscountPercentages; }
         public List<String> discountDiscrepancies() { return discountDiscrepancies; }
+        public Double referenceDiscountPercentage() { return referenceDiscountPercentage; }
+        public void setReferenceDiscountPercentage(Double referenceDiscountPercentage) { this.referenceDiscountPercentage = referenceDiscountPercentage; }
     }
 
     // UPDATED: Public Entry Point with original file names map
@@ -230,6 +234,11 @@ public class PriceComparerLogic {
                     compareAtPrice = 0.0; // If no promotion, compare at price = regular price
                 }
 
+                Double refDiscount = null;
+                if (compareAtPrice != null && compareAtPrice > 0 && price != null && price > 0) {
+                    double discount = ((compareAtPrice - price) / compareAtPrice) * 100;
+                    if (Math.abs(discount) > 0.5) refDiscount = discount;
+                }
 
                 if (!sku.isEmpty() && price != null) {
                     prices.put(sku, price);
@@ -238,6 +247,7 @@ public class PriceComparerLogic {
                     locationFileNames.forEach(locName -> locPrices.put(locName, null));
 
                     ReferenceItem item = new ReferenceItem(sku, name, price, compareAtPrice, new ArrayList<>(), locPrices, "");
+                    item.setReferenceDiscountPercentage(refDiscount);
 
                     // NEW: Read stock from reference file if available
                     if (indices.availableCol() >= 0) {
@@ -327,11 +337,18 @@ public class PriceComparerLogic {
 
                     // Store both price values using original file name
                     item.locationPrices().put(originalFileName, locationPrice);
-                    if (compareAtPrice != null) {
-                        item.locationCompareAtPrices().put(originalFileName, compareAtPrice);
-                    } else {
-                        // If compare at price is null, set it to 0 (meaning no promotion)
-                        item.locationCompareAtPrices().put(originalFileName, 0.0); // CHANGE #4: Show 0 instead of null
+                    double ogfCompareAt = (compareAtPrice != null) ? compareAtPrice : 0.0;
+                    item.locationCompareAtPrices().put(originalFileName, ogfCompareAt);
+
+                    // FIX: Only flag if OGF actually has a discount (compareAtPrice > price)
+                    if (locationPrice != null && ogfCompareAt > 0.01 && ogfCompareAt > locationPrice) {
+                        String disc = String.format(
+                                "%s: OGF discount detected (Price Rs.%.2f, Compare at Rs.%.2f)",
+                                originalFileName, locationPrice, ogfCompareAt
+                        );
+                        item.discrepancies().add(disc);
+                        // optional: keep it grouped under OGF Differences in the report
+                        item.ogfDiscrepancies().add(disc);
                     }
 
                     // NEW: Calculate and store discount percentage
@@ -494,6 +511,11 @@ public class PriceComparerLogic {
         Map<String, Double> discountValues = new HashMap<>();
 
         for (String locName : locationFileNames) {
+            // FIX: exclude OGF from discount-uniformity comparisons
+            if (locName != null && locName.toLowerCase().contains("ogf")) {
+                // But still allow OGF discount to be flagged elsewhere (we did that in performOgfComparison)
+                continue;
+            }
             Double discount = item.locationDiscountPercentages().get(locName);
             boolean hasDisc = (discount != null && Math.abs(discount) > 0.5);
             hasDiscount.put(locName, hasDisc);
@@ -526,8 +548,8 @@ public class PriceComparerLogic {
             item.discountDiscrepancies().add(issue);
 
             // Add details if needed
-            if (!discCompanies.isEmpty()) {
-                item.discountDiscrepancies().add(" Discounted in: " + String.join(", ", discCompanies));
+            if (!noDiscCompanies.isEmpty()) {
+                item.discountDiscrepancies().add(" No discount in: " + String.join(", ", noDiscCompanies));
             }
         }
 
@@ -820,6 +842,10 @@ public class PriceComparerLogic {
         Map<String, Double> margins = new HashMap<>();
         for (Map.Entry<String, Double> entry : compareAtPrices.entrySet()) {
             String fileName = entry.getKey();
+
+            // NEW: Ignore OGF for compare-at-price consistency checks
+            if (fileName != null && fileName.toLowerCase().contains("ogf")) continue;
+
             Double compareAtPrice = entry.getValue();
             Double regularPrice = regularPrices.get(fileName);
 
@@ -918,6 +944,8 @@ public class PriceComparerLogic {
             headerRow.createCell(colIndex++).setCellValue("Stock Available");
             headerRow.createCell(colIndex++).setCellValue("Reference Price");
             headerRow.createCell(colIndex++).setCellValue("Reference Compare at Price");
+            headerRow.createCell(colIndex++).setCellValue("Reference Disc %");
+            int refDiscountColIndex = colIndex - 1;
 
             // Create maps for column indices
             Map<String, Integer> sellingPriceColMap = new HashMap<>();
@@ -973,6 +1001,12 @@ public class PriceComparerLogic {
                 row.createCell(2).setCellValue(item.totalStock());
                 row.createCell(3).setCellValue(item.referencePrice());
                 row.createCell(4).setCellValue(item.referenceCompareAtPrice());
+                Double refDisc = item.referenceDiscountPercentage();
+                if (refDisc != null) {
+                    row.createCell(refDiscountColIndex).setCellValue(String.format("%.1f%%", refDisc));
+                } else {
+                    row.createCell(refDiscountColIndex).setCellValue("");
+                }
 
                 // For each location, show all price info
                 for (String locName : locationFileNames) {
