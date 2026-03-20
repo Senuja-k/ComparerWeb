@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>💊 SupplementVault.lk Sales Report</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background-color: #f8fafc; margin: 0; padding: 30px; display: flex; flex-direction: column; align-items: center; }
+        h1 { font-size: 32px; color: #1e1e1e; margin-bottom: 5px; }
+        p.subtitle { text-align: center; color: #787878; max-width: 700px; margin-bottom: 30px; }
+
+        .section-title { font-size: 14px; font-weight: 600; color: #555; text-transform: uppercase; letter-spacing: 0.5px; margin: 20px 0 10px; width: 100%; max-width: 1100px; text-align: left; }
+
+        .drop-container { display: flex; gap: 20px; width: 100%; max-width: 1100px; margin-bottom: 15px; }
+        .drop-area {
+            flex: 1; background-color: #fff; border: 2px dashed #dee2e6; border-radius: 12px;
+            padding: 25px; text-align: center; position: relative; min-height: 180px;
+            transition: all 0.2s;
+        }
+        .drop-area.small { min-height: 120px; max-width: 350px; }
+        .drop-area.dragover { border-color: #e040fb; background-color: #fdf5ff; }
+        .drop-area h2 { margin: 0; font-size: 18px; margin-bottom: 8px; }
+        .drop-area p { font-size: 13px; color: #787878; }
+        .file-list { margin-top: 12px; text-align: left; max-height: 120px; overflow-y: auto; }
+        .file-item {
+            background-color: #f5f0ff; border-radius: 6px; padding: 5px 10px;
+            margin-bottom: 5px; font-size: 13px; display: flex; justify-content: space-between; align-items: center;
+        }
+        .file-item span.remove { cursor: pointer; color: #ff6b6b; font-weight: bold; }
+
+        .fields-row { display: flex; gap: 15px; width: 100%; max-width: 1100px; margin-bottom: 15px; flex-wrap: wrap; }
+        .field-group { display: flex; flex-direction: column; flex: 1; min-width: 200px; }
+        .field-group label { font-size: 13px; font-weight: 600; color: #555; margin-bottom: 5px; }
+        .field-group input {
+            padding: 10px 12px; border: 1px solid #dee2e6; border-radius: 8px;
+            font-size: 14px; outline: none; transition: border-color 0.2s;
+        }
+        .field-group input:focus { border-color: #e040fb; }
+
+        .generate-btn {
+            background-color: #e040fb; color: white; font-weight: bold; font-size: 16px;
+            border: none; border-radius: 20px; padding: 14px 40px; cursor: pointer;
+            transition: background-color 0.2s; margin-top: 20px;
+        }
+        .generate-btn:disabled { background-color: #c8c8c8; cursor: not-allowed; }
+        .generate-btn:hover:not(:disabled) { background-color: #c030dd; }
+
+        .progress-container { width: 100%; max-width: 1100px; margin-top: 20px; text-align: center; }
+        .progress-bar { width: 100%; height: 20px; background-color: #e9ecef; border-radius: 10px; overflow: hidden; margin-bottom: 10px; }
+        .progress-fill { width: 0%; height: 100%; background-color: #e040fb; transition: width 0.3s; }
+        .status-label { font-size: 14px; color: #787878; }
+
+        .back-link { display: inline-block; margin-top: 25px; color: #7c4dff; text-decoration: none; font-size: 15px; }
+        .back-link:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+
+<h1>💊 SupplementVault.lk Sales Report</h1>
+<p class="subtitle">
+    Upload Order Reports, Merchant Coupon Codes, and the Target Table to generate your monthly sales report.
+</p>
+
+<!-- Order Reports -->
+<div class="section-title">Order Reports</div>
+<div class="drop-container">
+    <div id="orders-drop" class="drop-area">
+        <h2>📦 Order Report Files</h2>
+        <p>Drop the <b>Origins</b> and <b>SupplementVault</b> order report Excel files here (.xlsx, .xls, .csv)</p>
+        <div class="file-list" id="orders-list"></div>
+    </div>
+</div>
+
+<!-- Merchant Coupon & Target Table -->
+<div class="section-title">Merchant Coupon Codes &amp; Target Table</div>
+<div class="drop-container">
+    <div id="coupon-drop" class="drop-area small">
+        <h2>🏷️ Merchant Coupon Codes</h2>
+        <p>Drop the Coupon Code file here (.xlsx, .xls, .csv)</p>
+        <div class="file-list" id="coupon-list"></div>
+    </div>
+    <div id="target-drop" class="drop-area">
+        <h2>🎯 Target Table</h2>
+        <p>Drop the Target Excel file containing the monthly target table (.xlsx, .xls)</p>
+        <div class="file-list" id="target-list"></div>
+    </div>
+</div>
+
+<!-- Input Fields -->
+<div class="section-title">Report Parameters</div>
+<div class="fields-row">
+    <div class="field-group">
+        <label>Days Remaining (Online Merchants)</label>
+        <input type="number" id="daysOnline" placeholder="e.g. 12" min="0" />
+    </div>
+    <div class="field-group">
+        <label>Days Remaining (Outlet Merchants)</label>
+        <input type="number" id="daysOutlet" placeholder="e.g. 12" min="0" />
+    </div>
+    <div class="field-group">
+        <label>Total Days in Month</label>
+        <input type="number" id="totalDays" placeholder="e.g. 31" min="1" />
+    </div>
+    <div class="field-group">
+        <label>Report Day (Day count)</label>
+        <input type="number" id="reportDay" placeholder="e.g. 19" min="1" />
+    </div>
+</div>
+
+<button id="generate-btn" class="generate-btn" disabled>🚀 Generate Sales Report</button>
+
+<div class="progress-container">
+    <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+    <div class="status-label" id="status-label">Ready to process files</div>
+</div>
+
+<a class="back-link" href="sales-report.html">← Back to Sales Report</a>
+
+<script>
+    // File storage
+    let orderFiles = [];
+    let couponFile = null;
+    let targetFile = null;
+
+    const ordersDrop = document.getElementById('orders-drop');
+    const couponDrop = document.getElementById('coupon-drop');
+    const targetDrop = document.getElementById('target-drop');
+    const ordersList = document.getElementById('orders-list');
+    const couponList = document.getElementById('coupon-list');
+    const targetList = document.getElementById('target-list');
+    const generateBtn = document.getElementById('generate-btn');
+    const progressFill = document.getElementById('progress-fill');
+    const statusLabel = document.getElementById('status-label');
+
+    function updateGenerateButton() {
+        const daysOnline = document.getElementById('daysOnline').value;
+        const daysOutlet = document.getElementById('daysOutlet').value;
+        const totalDays = document.getElementById('totalDays').value;
+        const reportDay = document.getElementById('reportDay').value;
+        generateBtn.disabled = !(orderFiles.length >= 2 && couponFile && targetFile && daysOnline && daysOutlet && totalDays && reportDay);
+    }
+
+    // Listen to input fields for enabling button
+    ['daysOnline','daysOutlet','totalDays','reportDay'].forEach(id => {
+        document.getElementById(id).addEventListener('input', updateGenerateButton);
+    });
+
+    function createFileItem(file, listEl, onRemove) {
+        const div = document.createElement('div');
+        div.className = 'file-item';
+        div.textContent = file.name;
+        const remove = document.createElement('span');
+        remove.className = 'remove';
+        remove.textContent = '✖';
+        remove.onclick = () => { listEl.removeChild(div); onRemove(file); updateGenerateButton(); };
+        div.appendChild(remove);
+        listEl.appendChild(div);
+    }
+
+    function setupDropArea(dropEl, onDrop) {
+        dropEl.addEventListener('dragover', e => { e.preventDefault(); dropEl.classList.add('dragover'); });
+        dropEl.addEventListener('dragleave', () => dropEl.classList.remove('dragover'));
+        dropEl.addEventListener('drop', e => { e.preventDefault(); dropEl.classList.remove('dragover'); onDrop(e); });
+    }
+
+    // Order Reports - multiple files
+    setupDropArea(ordersDrop, (e) => {
+        const files = [...e.dataTransfer.files].filter(f => f.name.match(/\.(xlsx|xls|csv)$/i));
+        files.forEach(f => {
+            if (!orderFiles.some(ef => ef.name === f.name)) {
+                orderFiles.push(f);
+                createFileItem(f, ordersList, (file) => { orderFiles = orderFiles.filter(of => of !== file); });
+            }
+        });
+        updateGenerateButton();
+    });
+
+    // Coupon File - single file
+    setupDropArea(couponDrop, (e) => {
+        const files = [...e.dataTransfer.files].filter(f => f.name.match(/\.(xlsx|xls|csv)$/i));
+        if (files.length > 0) {
+            couponFile = files[0];
+            couponList.innerHTML = '';
+            createFileItem(couponFile, couponList, () => { couponFile = null; });
+            updateGenerateButton();
+        }
+    });
+
+    // Target Table - single file
+    setupDropArea(targetDrop, (e) => {
+        const files = [...e.dataTransfer.files].filter(f => f.name.match(/\.(xlsx|xls)$/i));
+        if (files.length > 0) {
+            targetFile = files[0];
+            targetList.innerHTML = '';
+            createFileItem(targetFile, targetList, () => { targetFile = null; });
+            updateGenerateButton();
+        }
+    });
+
+    generateBtn.addEventListener('click', async () => {
+        const formData = new FormData();
+        orderFiles.forEach(f => formData.append('orderFiles', f));
+        formData.append('couponFile', couponFile);
+        formData.append('targetFile', targetFile);
+        formData.append('daysRemainingOnline', document.getElementById('daysOnline').value);
+        formData.append('daysRemainingOutlet', document.getElementById('daysOutlet').value);
+        formData.append('totalDays', document.getElementById('totalDays').value);
+        formData.append('reportDay', document.getElementById('reportDay').value);
+
+        statusLabel.textContent = 'Processing... Please wait.';
+        progressFill.style.width = '30%';
+        generateBtn.disabled = true;
+
+        try {
+            const response = await fetch('/api/supplement-vault/generate', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                const errText = await response.text();
+                throw new Error(errText || 'Failed to generate report');
+            }
+
+            const blob = await response.blob();
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = 'SupplementVault_Sales_Report.xlsx';
+            link.click();
+
+            progressFill.style.width = '100%';
+            statusLabel.textContent = '✅ Report generated successfully!';
+        } catch (err) {
+            console.error(err);
+            progressFill.style.width = '0%';
+            statusLabel.textContent = '❌ Error: ' + err.message;
+        } finally {
+            generateBtn.disabled = false;
+            updateGenerateButton();
+        }
+    });
+</script>
+</body>
+</html>
