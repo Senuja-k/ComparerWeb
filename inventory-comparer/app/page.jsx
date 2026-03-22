@@ -24,7 +24,7 @@ const tools = [
     href: "/loyalty-comparer",
     icon: "👑",
     title: "Loyalty Comparer",
-    description: "Compare loyalty programs, points systems, and customer rewards",
+    description: "Compare loyalty status for customers across companies.",
     color: "#ff6b6b",
   },
   {
