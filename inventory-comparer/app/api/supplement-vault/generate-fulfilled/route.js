@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { generateSupplementVaultReport } from "@/lib/supplementVaultLogic";
+import { generateFulfilledDateReport } from "@/lib/fulfilledDateLogic";
 
 export async function POST(request) {
   try {
@@ -8,12 +8,6 @@ export async function POST(request) {
     const orderEntries = formData.getAll("orderFiles");
     const couponEntry = formData.get("couponFile");
     const targetEntry = formData.get("targetFile");
-
-    const daysRemainingOnline = Number(formData.get("daysRemainingOnline") || 0);
-    const daysRemainingOutlet = Number(formData.get("daysRemainingOutlet") || 0);
-    const totalDays = Number(formData.get("totalDays") || 0);
-    const reportDay = Number(formData.get("reportDay") || 0);
-
     const startDate = formData.get("startDate");
     const endDate = formData.get("endDate");
 
@@ -25,6 +19,9 @@ export async function POST(request) {
     }
     if (!targetEntry) {
       return NextResponse.json({ error: "Target file is required" }, { status: 400 });
+    }
+    if (!startDate || !endDate) {
+      return NextResponse.json({ error: "Date range is required" }, { status: 400 });
     }
 
     const orderFiles = await Promise.all(
@@ -44,27 +41,23 @@ export async function POST(request) {
       buffer: Buffer.from(await targetEntry.arrayBuffer()),
     };
 
-    const reportBuffer = await generateSupplementVaultReport({
+    const reportBuffer = await generateFulfilledDateReport({
       orderFiles,
       couponFile,
       targetFile,
-      daysRemainingOnline,
-      daysRemainingOutlet,
-      totalDays,
-      reportDay,
-      startDate: startDate || undefined,
-      endDate: endDate || undefined,
+      startDate,
+      endDate,
     });
 
     return new NextResponse(new Uint8Array(reportBuffer), {
       status: 200,
       headers: {
         "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": 'attachment; filename="SupplementVault_Sales_Report.xlsx"',
+        "Content-Disposition": 'attachment; filename="SupplementVault_FulfilledDate_Report.xlsx"',
       },
     });
   } catch (err) {
-    console.error("Supplement Vault error:", err);
+    console.error("Fulfilled Date report error:", err);
     return new NextResponse(err.message || "Internal server error", { status: 500 });
   }
 }
