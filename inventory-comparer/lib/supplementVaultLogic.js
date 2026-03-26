@@ -28,6 +28,18 @@ function parseFulfilledDate(raw) {
   const trimmed = String(raw).trim();
   if (!trimmed) return null;
 
+  if (/^\d+(\.\d+)?$/.test(trimmed)) {
+    const serial = Number(trimmed);
+    if (!Number.isNaN(serial) && serial > 0) {
+      const utcDays = Math.floor(serial - 25569);
+      const utcValue = utcDays * 86400;
+      const dateInfo = new Date(utcValue * 1000);
+      if (!isNaN(dateInfo.getTime())) {
+        return new Date(dateInfo.getUTCFullYear(), dateInfo.getUTCMonth(), dateInfo.getUTCDate());
+      }
+    }
+  }
+
   for (const { regex, parse } of DATE_REGEXES) {
     const m = trimmed.match(regex);
     if (m) {
@@ -162,10 +174,11 @@ function getVal(row, col) {
 }
 
 function createOrderRow(company, data) {
-  const row = { company, data, total: 0, financialStatus: '', discountCode: '' };
+  const row = { company, data, total: 0, financialStatus: '', discountCode: '', createdAt: '' };
   row.financialStatus = getVal(row, 'Financial Status');
   row.discountCode = normalizeCode(getVal(row, 'Discount Code'));
   row.total = parseDouble(getVal(row, 'Total'));
+  row.createdAt = getVal(row, 'Created at');
   return row;
 }
 
@@ -290,7 +303,7 @@ function findHeaderRow(grid, startRow, endRow, startCol, endCol) {
     if (!rowData) continue;
     for (let c = startCol; c <= endCol; c++) {
       const val = String(rowData[c] ?? '').toLowerCase();
-      if (val.includes('merchant name')) return r;
+      if (val.includes('merchant name') || val.includes('merchant')) return r;
     }
   }
   return -1;
@@ -367,13 +380,19 @@ function readTargetTable(file) {
 
   if (colMerchant < 0) return result;
 
+  let startedRows = false;
   for (let r = dataStartRow; r <= endRow; r++) {
     const rowData = grid[r] || {};
     const merchant = String(rowData[colMerchant] ?? '').trim();
-    if (!merchant) continue;
+    if (!merchant) {
+      if (startedRows) break;
+      continue;
+    }
+    startedRows = true;
 
     const merchantLower = merchant.toLowerCase();
-    if (merchantLower.includes('total') || merchantLower.includes('grand total')) break;
+    if (merchantLower === 'total' || merchantLower === 'grand total') break;
+    if (merchantLower.includes('merchant total')) continue;
 
     const tr = {
       rowIndex: r, // actual Excel 0-based row number
@@ -655,6 +674,12 @@ async function fillReportSheet(
 
     // Number format that shows "-" for zero values
     const NUM_FMT = '#,##0.00;-#,##0.00;"-"';
+    const originColRef = colOriginSale >= 0 ? colLetter(colOriginSale) : '';
+    const svColRef = colSvSale >= 0 ? colLetter(colSvSale) : '';
+    const totalColRef = colTotalSale >= 0 ? colLetter(colTotalSale) : '';
+    const targetColRef = colTarget >= 0 ? colLetter(colTarget) : '';
+    const balanceColRef = colBalance >= 0 ? colLetter(colBalance) : '';
+    const forecastColRef = colForecast >= 0 ? colLetter(colForecast) : '';
 
     // Write sale values — only these two; all other columns keep their original formulas
     if (colOriginSale >= 0) {
@@ -662,6 +687,48 @@ async function fillReportSheet(
     }
     if (colSvSale >= 0) {
       writeCell(row.getCell(colSvSale + 1), svSale, NUM_FMT);
+    }
+    if (colTotalSale >= 0 && originColRef && svColRef) {
+      writeCell(
+        row.getCell(colTotalSale + 1),
+        { formula: `(${originColRef}${excelRowNum}+${svColRef}${excelRowNum})` },
+        NUM_FMT
+      );
+    }
+    if (colAchievement >= 0 && totalColRef && targetColRef) {
+      writeCell(
+        row.getCell(colAchievement + 1),
+        { formula: `IF(${targetColRef}${excelRowNum}=0,0,${totalColRef}${excelRowNum}/${targetColRef}${excelRowNum})` },
+        '0%'
+      );
+    }
+    if (colBalance >= 0 && targetColRef && totalColRef) {
+      writeCell(
+        row.getCell(colBalance + 1),
+        { formula: `MAX(${targetColRef}${excelRowNum}-${totalColRef}${excelRowNum},0)` },
+        NUM_FMT
+      );
+    }
+    if (colPerDayTarget >= 0 && balanceColRef) {
+      writeCell(
+        row.getCell(colPerDayTarget + 1),
+        { formula: `IF(${balanceColRef}${excelRowNum}=0,0,${balanceColRef}${excelRowNum}/${Math.max(daysRemaining, 1)})` },
+        NUM_FMT
+      );
+    }
+    if (colForecast >= 0 && totalColRef) {
+      writeCell(
+        row.getCell(colForecast + 1),
+        { formula: `(${totalColRef}${excelRowNum}/${Math.max(reportDay, 1)})*${Math.max(totalDays, 1)}` },
+        NUM_FMT
+      );
+    }
+    if (colForecastPct >= 0 && forecastColRef && targetColRef) {
+      writeCell(
+        row.getCell(colForecastPct + 1),
+        { formula: `IF(${targetColRef}${excelRowNum}=0,0,${forecastColRef}${excelRowNum}/${targetColRef}${excelRowNum})` },
+        '0%'
+      );
     }
     // Leave Total Sale, Achievement %, Balance, Per Day Target, Forecast, Forecast Achievement %
     // untouched — the original formulas in the target file will recalculate via fullCalcOnLoad
@@ -957,7 +1024,7 @@ export async function generateSupplementVaultReport(
     const fromTime = dateOnly(dateFrom);
     const toTime = dateOnly(dateTo);
     filtered = filtered.filter((r) => {
-      const rawDate = getVal(r, 'Created at');
+      const rawDate = r.createdAt || getVal(r, 'Created at');
       const d = parseFulfilledDate(rawDate);
       if (!d) return false;
       const t = dateOnly(d);
@@ -1120,27 +1187,7 @@ export async function generateSupplementVaultReport(
     reportDay
   );
 
-  let sheet2InvoiceTotals = new Map();
-  if (wb.worksheets.length >= 2 && rawWb.SheetNames.length >= 2) {
-    const rawSheet2 = rawWb.Sheets[rawWb.SheetNames[1]];
-    const result = fillSheet2or3(wb.worksheets[1], rawSheet2, merchantSalesMap);
-    sheet2InvoiceTotals = result.invoiceTotals;
-  }
-
-  let sheet3InvoiceTotals = new Map();
-  if (wb.worksheets.length >= 3 && rawWb.SheetNames.length >= 3) {
-    const rawSheet3 = rawWb.Sheets[rawWb.SheetNames[2]];
-    const result = fillSheet2or3(wb.worksheets[2], rawSheet3, merchantSalesMap);
-    sheet3InvoiceTotals = result.invoiceTotals;
-  }
-
-  if (wb.worksheets.length >= 4 && rawWb.SheetNames.length >= 4) {
-    let totalInvoiceSales = 0;
-    for (const [, val] of sheet2InvoiceTotals) totalInvoiceSales += val;
-    for (const [, val] of sheet3InvoiceTotals) totalInvoiceSales += val;
-    const rawSheet4 = rawWb.Sheets[rawWb.SheetNames[3]];
-    fillSheet4(wb.worksheets[3], rawSheet4, totalInvoiceSales);
-  }
+  // Created-date mode should only update the top table on sheet 1.
 
   // Add Sheet: ALL (merged order data)
   writeAllSheet(wb, allOrders, orderHeaders);
