@@ -43,6 +43,14 @@ const tools = [
     description: "Generate monthly sales reports and track merchant performance targets",
     color: "#e040fb",
   },
+  {
+    key: "continue-deny",
+    href: "/continue-deny",
+    icon: "🚦",
+    title: "Continue/Deny Checker",
+    description: "Flag SKUs with available stock but a Deny inventory policy in Cosmetics.lk",
+    color: "#e53935",
+  },
 ];
 
 export default function Home() {
