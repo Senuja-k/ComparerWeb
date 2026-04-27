@@ -51,6 +51,14 @@ const tools = [
     description: "Flag SKUs with available stock but a Deny inventory policy in Cosmetics.lk",
     color: "#e53935",
   },
+  {
+    key: "cosmetics-stock",
+    href: "/cosmetics-stock-comparer",
+    icon: "🏪",
+    title: "Cosmetics Stock Comparer",
+    description: "Find Cosmetics.lk products with zero stock and check if other shops have them",
+    color: "#00897b",
+  },
 ];
 
 export default function Home() {
