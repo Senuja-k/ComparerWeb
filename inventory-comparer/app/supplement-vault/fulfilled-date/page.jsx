@@ -7,6 +7,7 @@ import DropZone from "../../components/DropZone";
 export default function FulfilledDatePage() {
   const [orderFiles, setOrderFiles] = useState([]);
   const [couponFiles, setCouponFiles] = useState([]);
+  const [aeFiles, setAeFiles] = useState([]);
   const [targetFiles, setTargetFiles] = useState([]);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -25,6 +26,7 @@ export default function FulfilledDatePage() {
     orderFiles.forEach((f) => formData.append("orderFiles", f));
     formData.append("couponFile", couponFiles[0]);
     formData.append("targetFile", targetFiles[0]);
+    if (aeFiles.length > 0) formData.append("aeFile", aeFiles[0]);
     formData.append("startDate", startDate);
     formData.append("endDate", endDate);
 
@@ -117,6 +119,27 @@ export default function FulfilledDatePage() {
           multiple={false}
           accentColor="#e040fb"
         />
+      </div>
+
+      {/* AE Trading */}
+      <div className="w-full max-w-[1100px]">
+        <p className="text-xs font-semibold text-[#555] uppercase tracking-wide mb-2">
+          AE Trading File <span className="text-[#999] normal-case font-normal">(optional)</span>
+        </p>
+      </div>
+      <div className="flex gap-5 w-full max-w-[1100px] mb-4">
+        <div className="max-w-[350px] flex-1">
+          <DropZone
+            title="AE Trading Export"
+            icon="🏪"
+            description="Drop the AE Trading export file here (.xlsx, .xls, .csv)"
+            files={aeFiles}
+            onFilesChange={setAeFiles}
+            multiple={false}
+            accept=".xlsx,.xls,.csv"
+            accentColor="#f57c00"
+          />
+        </div>
       </div>
 
       {/* Date Range */}

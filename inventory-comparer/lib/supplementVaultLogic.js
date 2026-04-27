@@ -311,7 +311,7 @@ function readCouponFile(file) {
  * Read an AE Trading export file.
  * Columns: Type (filter: Invoice only), Memo (coupon/merchant code), Amount (sale total).
  */
-function readAETradingFile(file) {
+function readAETradingFile(file, dateFrom, dateTo) {
   const entries = [];
   const wb = XLSX.read(file.buffer, { type: 'buffer' });
   const sheet = wb.Sheets[wb.SheetNames[0]];
@@ -337,6 +337,7 @@ function readAETradingFile(file) {
   let colAmount = -1;
   let colType = -1;
   let colNo = -1;
+  let colDate = -1;
 
   for (let c = 0; c < headers.length; c++) {
     const h = String(headers[c] ?? '').trim().toLowerCase();
@@ -344,9 +345,13 @@ function readAETradingFile(file) {
     else if ((h === 'amount' || h.includes('amount')) && colAmount < 0) colAmount = c;
     else if ((h === 'type' || h.includes('type')) && colType < 0) colType = c;
     else if ((h === 'no.' || h === 'no' || h === 'number') && colNo < 0) colNo = c;
+    else if ((h === 'date' || h.includes('date')) && colDate < 0) colDate = c;
   }
 
   if (colMemo < 0 || colAmount < 0) return entries;
+
+  const fromTime = dateFrom ? dateOnly(dateFrom) : null;
+  const toTime = dateTo ? dateOnly(dateTo) : null;
 
   for (let r = headerRowIdx + 1; r < raw.length; r++) {
     const rowArr = raw[r];
@@ -354,6 +359,15 @@ function readAETradingFile(file) {
     if (colType >= 0) {
       const type = String(rowArr[colType] ?? '').trim().toLowerCase();
       if (type && type !== 'invoice') continue;
+    }
+    // Date filtering
+    if ((fromTime || toTime) && colDate >= 0) {
+      const rawDate = String(rowArr[colDate] ?? '').trim();
+      const d = parseFulfilledDate(rawDate);
+      if (!d) continue;
+      const t = dateOnly(d);
+      if (fromTime && t < fromTime) continue;
+      if (toTime && t > toTime) continue;
     }
     const memo = String(rowArr[colMemo] ?? '').trim();
     const amount = parseDouble(String(rowArr[colAmount] ?? ''));
@@ -473,6 +487,53 @@ function readTargetTable(file) {
   }
 
   return result;
+}
+
+// Words too generic to use for name-matching heuristic
+const COMMON_WORDS = new Set(['sale', 'shop', 'order', 'pvt', 'ltd', 'the', 'for', 'and', 'trading', 'lk', 'web']);
+
+function significantWords(str) {
+  return str
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 4 && !COMMON_WORDS.has(w));
+}
+
+/**
+ * Given a list of normalised discount code tokens and the target merchant map,
+ * try to find a matching target by:
+ *  1. Exact key match (lowercase)
+ *  2. normalizeName contains match
+ *  3. Shared-significant-word overlap (handles "Staff order" → "Staff Sale")
+ */
+function findTargetByCode(codes, targetMerchantNames) {
+  for (const code of codes) {
+    // 1. Direct lowercase match
+    if (targetMerchantNames.has(code)) {
+      return targetMerchantNames.get(code);
+    }
+    // 2. normalizeName fuzzy contains
+    const codeNorm = normalizeName(code);
+    for (const [tnLower, tnOriginal] of targetMerchantNames) {
+      const tnNorm = normalizeName(tnLower);
+      if (codeNorm && tnNorm && (codeNorm === tnNorm || codeNorm.includes(tnNorm) || tnNorm.includes(codeNorm))) {
+        return tnOriginal;
+      }
+    }
+    // 3. Significant-word overlap
+    const codeWords = significantWords(code);
+    if (codeWords.length === 0) continue;
+    for (const [tnLower, tnOriginal] of targetMerchantNames) {
+      const tnWords = significantWords(tnLower);
+      if (tnWords.length === 0) continue;
+      const shared = codeWords.filter((w) => tnWords.includes(w));
+      // Require the shared words to cover at least half of the shorter list
+      if (shared.length > 0 && shared.length >= Math.min(codeWords.length, tnWords.length) / 2) {
+        return tnOriginal;
+      }
+    }
+  }
+  return null;
 }
 
 // ===== Merchant Sales Matching =====
@@ -1210,11 +1271,23 @@ export async function generateSupplementVaultReport(
   let unmatchedSV = 0;
 
   for (const row of filtered) {
-    const code = normalizeCode(row.discountCode);
-    const mc = codeToMerchant.get(code);
+    // The Discount Code cell may contain multiple comma-separated codes; find the first
+    // one that matches a known merchant coupon.
+    const rawCodes = String(row.discountCode || '').split(',').map((s) => normalizeCode(s.trim())).filter(Boolean);
+    let mc = null;
+    for (const code of rawCodes) {
+      const candidate = codeToMerchant.get(code);
+      if (candidate) { mc = candidate; break; }
+    }
 
-    if (mc && mc.targetName) {
-      const merchantKey = mc.targetName;
+    // Fallback: try to match any code token directly against target merchant names
+    // (handles cases like "Staff order" → "Staff Sale" where no coupon file entry exists)
+    let merchantKey = mc?.targetName ?? null;
+    if (!merchantKey) {
+      merchantKey = findTargetByCode(rawCodes, targetMerchantNames);
+    }
+
+    if (merchantKey) {
       let sales = merchantSalesMap.get(merchantKey);
       if (!sales) {
         sales = { originsSale: 0, svSale: 0 };
@@ -1257,7 +1330,7 @@ export async function generateSupplementVaultReport(
 
   const missingCouponEntries = [];
   if (aeFile) {
-    const aeEntries = readAETradingFile(aeFile);
+    const aeEntries = readAETradingFile(aeFile, dateFrom, dateTo);
     for (const entry of aeEntries) {
       // Normalize memo: strip hyphens and lowercase
       let normMemo = normalizeAECode(entry.memo);

@@ -5,7 +5,7 @@ import { restoreChartsFromOriginal } from './xlsxChartPreserver.js';
 // ===== Helpers =====
 
 function totalSale(s) {
-  return s.originsSale + s.svSale;
+  return s.originsSale + s.svSale + (s.aeSale || 0);
 }
 
 const DATE_REGEXES = [
@@ -58,6 +58,17 @@ function normalizeCode(s) {
   t = t.replace(/^=+/, '');
   t = t.replace(/^"|"$/g, '');
   return t.trim().toLowerCase();
+}
+
+// Like normalizeCode but also strips hyphens — for AE Trading memo matching (MER-110 → mer110)
+function normalizeAECode(s) {
+  if (!s) return '';
+  let t = s.trim();
+  t = t.replace(/^=+/, '');
+  t = t.replace(/^"|"$/g, '');
+  t = t.trim().toLowerCase();
+  t = t.replace(/-/g, '');
+  return t;
 }
 
 // Strip spaces, dots, hyphens, slashes and lowercase for fuzzy name comparison
@@ -244,6 +255,67 @@ function readCouponFile(file) {
   return coupons;
 }
 
+/**
+ * Read an AE Trading export file.
+ * Columns: Type (filter: Invoice only), Memo (coupon/merchant code), Amount (sale total), Date, No.
+ */
+function readAETradingFile(file, dateFrom, dateTo) {
+  const entries = [];
+  const wb = XLSX.read(file.buffer, { type: 'buffer' });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  if (!sheet) return entries;
+
+  const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false });
+  if (raw.length === 0) return entries;
+
+  let headerRowIdx = -1;
+  for (let r = 0; r < Math.min(raw.length, 15); r++) {
+    const rowVals = raw[r].map((v) => String(v ?? '').trim().toLowerCase());
+    if (rowVals.some((v) => v === 'memo') && rowVals.some((v) => v.includes('amount') || v === 'type')) {
+      headerRowIdx = r;
+      break;
+    }
+  }
+  if (headerRowIdx < 0) return entries;
+
+  const headers = raw[headerRowIdx];
+  let colMemo = -1, colAmount = -1, colType = -1, colNo = -1, colDate = -1;
+  for (let c = 0; c < headers.length; c++) {
+    const h = String(headers[c] ?? '').trim().toLowerCase();
+    if ((h === 'memo' || h.includes('memo')) && colMemo < 0) colMemo = c;
+    else if ((h === 'amount' || h.includes('amount')) && colAmount < 0) colAmount = c;
+    else if ((h === 'type' || h.includes('type')) && colType < 0) colType = c;
+    else if ((h === 'no.' || h === 'no' || h === 'number') && colNo < 0) colNo = c;
+    else if ((h === 'date' || h.includes('date')) && colDate < 0) colDate = c;
+  }
+  if (colMemo < 0 || colAmount < 0) return entries;
+
+  const fromTime = dateFrom ? dateOnly(dateFrom) : null;
+  const toTime = dateTo ? dateOnly(dateTo) : null;
+
+  for (let r = headerRowIdx + 1; r < raw.length; r++) {
+    const rowArr = raw[r];
+    if (colType >= 0) {
+      const type = String(rowArr[colType] ?? '').trim().toLowerCase();
+      if (type && type !== 'invoice') continue;
+    }
+    if ((fromTime || toTime) && colDate >= 0) {
+      const rawDate = String(rowArr[colDate] ?? '').trim();
+      const d = parseDate(rawDate);
+      if (!d) continue;
+      const t = dateOnly(d);
+      if (fromTime && t < fromTime) continue;
+      if (toTime && t > toTime) continue;
+    }
+    const memo = String(rowArr[colMemo] ?? '').trim();
+    const amount = parseDouble(String(rowArr[colAmount] ?? ''));
+    const no = colNo >= 0 ? String(rowArr[colNo] ?? '').trim() : '';
+    if (!memo && amount === 0) continue;
+    entries.push({ memo, amount, no });
+  }
+  return entries;
+}
+
 function findHeaderRow(grid, startRow, endRow, startCol, endCol) {
   for (let r = startRow; r <= Math.min(endRow, startRow + 10); r++) {
     const rowData = grid[r];
@@ -374,16 +446,57 @@ function buildMerchantMappings(coupons, targetMerchantNames) {
   return { codeToMerchant, merchantTypeMap };
 }
 
-function computeSalesMap(filteredOrders, codeToMerchant) {
+// Words too generic to use for name-matching heuristic
+const COMMON_WORDS = new Set(['sale', 'shop', 'order', 'pvt', 'ltd', 'the', 'for', 'and', 'trading', 'lk', 'web']);
+
+function significantWords(str) {
+  return str
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 4 && !COMMON_WORDS.has(w));
+}
+
+function findTargetByCode(codes, targetMerchantNames) {
+  for (const code of codes) {
+    if (targetMerchantNames.has(code)) return targetMerchantNames.get(code);
+    const codeNorm = normalizeName(code);
+    for (const [tnLower, tnOriginal] of targetMerchantNames) {
+      const tnNorm = normalizeName(tnLower);
+      if (codeNorm && tnNorm && (codeNorm === tnNorm || codeNorm.includes(tnNorm) || tnNorm.includes(codeNorm))) {
+        return tnOriginal;
+      }
+    }
+    const codeWords = significantWords(code);
+    if (codeWords.length === 0) continue;
+    for (const [tnLower, tnOriginal] of targetMerchantNames) {
+      const tnWords = significantWords(tnLower);
+      if (tnWords.length === 0) continue;
+      const shared = codeWords.filter((w) => tnWords.includes(w));
+      if (shared.length > 0 && shared.length >= Math.min(codeWords.length, tnWords.length) / 2) {
+        return tnOriginal;
+      }
+    }
+  }
+  return null;
+}
+
+function computeSalesMap(filteredOrders, codeToMerchant, targetMerchantNames) {
   const merchantSalesMap = new Map();
   let unmatchedOrigins = 0;
   let unmatchedSV = 0;
 
   for (const row of filteredOrders) {
-    const code = normalizeCode(row.discountCode);
-    const mc = codeToMerchant.get(code);
-    if (mc && mc.targetName) {
-      const merchantKey = mc.targetName;
+    const rawCodes = String(row.discountCode || '').split(',').map((s) => normalizeCode(s.trim())).filter(Boolean);
+    let mc = null;
+    for (const code of rawCodes) {
+      const candidate = codeToMerchant.get(code);
+      if (candidate) { mc = candidate; break; }
+    }
+    let merchantKey = mc?.targetName ?? null;
+    if (!merchantKey) {
+      merchantKey = findTargetByCode(rawCodes, targetMerchantNames);
+    }
+    if (merchantKey) {
       let sales = merchantSalesMap.get(merchantKey);
       if (!sales) { sales = { originsSale: 0, svSale: 0 }; merchantSalesMap.set(merchantKey, sales); }
       if (row.company === 'Origins') sales.originsSale += row.total;
@@ -798,12 +911,10 @@ function writeAllSheet(wb, allOrders, headers) {
 
 function writeSalesSheet(wb, fulfilledMap, createdMap) {
   const ws = wb.addWorksheet('Sales');
-  // Columns: Merchant | Complete Sale (Fulfilled) | Invoice Sale (Created)
   const cols = ['Merchant Name', 'Complete Sale (Fulfilled at)', 'Invoice Sale (Created at)'];
   const headerRow = ws.addRow(cols);
   headerRow.eachCell((cell) => { cell.font = { bold: true }; });
 
-  // Gather all merchant names from both maps
   const allNames = new Set([...fulfilledMap.keys(), ...createdMap.keys()]);
   for (const name of allNames) {
     const fs = fulfilledMap.get(name);
@@ -865,10 +976,20 @@ function writeExtraMerchantsSheet(wb, extraMerchants) {
   }
 }
 
+function writeMissingCouponSheet(wb, missingEntries) {
+  const ws = wb.addWorksheet('Missing Coupon (AE)');
+  const headerRow = ws.addRow(['No.', 'Memo', 'Amount']);
+  headerRow.eachCell((cell) => { cell.font = { bold: true }; });
+  for (const entry of missingEntries) {
+    const row = ws.addRow([entry.no || '', entry.memo, entry.amount]);
+    row.getCell(3).numFmt = '#,##0.00';
+  }
+}
+
 // ===== Main Entry Point =====
 
 export async function generateFulfilledDateReport(params) {
-  const { orderFiles, couponFile, targetFile, startDate, endDate } = params;
+  const { orderFiles, couponFile, aeFile, targetFile, startDate, endDate } = params;
 
   // 1. Read all order reports
   const allOrders = [];
@@ -930,8 +1051,50 @@ export async function generateFulfilledDateReport(params) {
   const { codeToMerchant, merchantTypeMap } = buildMerchantMappings(coupons, targetMerchantNames);
 
   // 5. Compute sales maps
-  const fulfilledSalesMap = computeSalesMap(fulfilledFiltered, codeToMerchant);
-  const createdSalesMap = computeSalesMap(createdFiltered, codeToMerchant);
+  const fulfilledSalesMap = computeSalesMap(fulfilledFiltered, codeToMerchant, targetMerchantNames);
+  const createdSalesMap = computeSalesMap(createdFiltered, codeToMerchant, targetMerchantNames);
+
+  // 5b. Process AE Trading file — AE has no fulfilled/created distinction so add to both maps
+  const codeToMerchantAE = new Map();
+  for (const mc of coupons) {
+    if (mc.discountCode && mc.discountCode.trim()) {
+      const normCode = normalizeAECode(mc.discountCode);
+      if (!codeToMerchantAE.has(normCode)) codeToMerchantAE.set(normCode, mc);
+    }
+  }
+
+  const missingCouponEntries = [];
+  if (aeFile) {
+    const fromDate = parseLocalDate(startDate);
+    const toDate = parseLocalDate(endDate);
+    const aeEntries = readAETradingFile(aeFile, fromDate, toDate);
+    for (const entry of aeEntries) {
+      let normMemo = normalizeAECode(entry.memo);
+      let mc = codeToMerchantAE.get(normMemo);
+      if (!mc) {
+        const merMatch = entry.memo.match(/\bmer-?\d+\b/i);
+        if (merMatch) {
+          normMemo = normalizeAECode(merMatch[0]);
+          mc = codeToMerchantAE.get(normMemo);
+        }
+      }
+      if (mc && mc.targetName) {
+        const merchantKey = mc.targetName;
+        // Add to both maps with same amount (AE has no date distinction)
+        for (const sMap of [fulfilledSalesMap, createdSalesMap]) {
+          let sales = sMap.get(merchantKey);
+          if (!sales) {
+            sales = { originsSale: 0, svSale: 0, aeSale: 0 };
+            sMap.set(merchantKey, sales);
+          }
+          if (!sales.aeSale) sales.aeSale = 0;
+          sales.aeSale += entry.amount;
+        }
+      } else {
+        missingCouponEntries.push(entry);
+      }
+    }
+  }
 
   // Identify extra merchants (have sales but not in target)
   const extraMerchants = new Map();
@@ -1001,6 +1164,10 @@ export async function generateFulfilledDateReport(params) {
   // Add Sheet: Other Merchants
   if (extraMerchants.size > 0) {
     writeExtraMerchantsSheet(wb, extraMerchants);
+  }
+
+  if (missingCouponEntries.length > 0) {
+    writeMissingCouponSheet(wb, missingCouponEntries);
   }
 
   const arrayBuffer = await wb.xlsx.writeBuffer();

@@ -7,6 +7,7 @@ export async function POST(request) {
 
     const orderEntries = formData.getAll("orderFiles");
     const couponEntry = formData.get("couponFile");
+    const aeEntry = formData.get("aeFile");
     const targetEntry = formData.get("targetFile");
     const startDate = formData.get("startDate");
     const endDate = formData.get("endDate");
@@ -41,9 +42,14 @@ export async function POST(request) {
       buffer: Buffer.from(await targetEntry.arrayBuffer()),
     };
 
+    const aeFile = aeEntry
+      ? { name: aeEntry.name, buffer: Buffer.from(await aeEntry.arrayBuffer()) }
+      : null;
+
     const reportBuffer = await generateFulfilledDateReport({
       orderFiles,
       couponFile,
+      aeFile,
       targetFile,
       startDate,
       endDate,
