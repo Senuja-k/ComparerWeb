@@ -76,7 +76,7 @@ export default function Home() {
         if (bufRef.current.endsWith("games")) {
           bufRef.current = "";
           setGlitch(true);
-          setTimeout(() => router.push("/games"), 1050);
+          setTimeout(() => router.push("/games"), 1900);
         }
       }
     };
@@ -85,27 +85,27 @@ export default function Home() {
   }, [router]);
 
   return (
-    <div style={glitch ? { animation: "g-shake 0.5s ease-in-out" } : {}}>
+    <div style={glitch ? { animation: "g-shake 0.9s ease-in-out" } : {}}>
       {glitch && (
         <div className="fixed inset-0 z-50 pointer-events-none overflow-hidden">
           {/* Dark takeover */}
-          <div className="absolute inset-0" style={{ background: "#06060f", animation: "g-darken 0.3s ease-out forwards" }} />
+          <div className="absolute inset-0" style={{ background: "#06060f", animation: "g-darken 0.55s ease-out forwards" }} />
 
           {/* RGB chromatic split — red */}
-          <div className="absolute inset-0" style={{ background: "rgba(255,0,60,0.28)", mixBlendMode: "screen", animation: "g-rgb-r 0.75s ease-in-out forwards" }} />
+          <div className="absolute inset-0" style={{ background: "rgba(255,0,60,0.28)", mixBlendMode: "screen", animation: "g-rgb-r 1.3s ease-in-out forwards" }} />
           {/* RGB chromatic split — blue */}
-          <div className="absolute inset-0" style={{ background: "rgba(0,120,255,0.28)", mixBlendMode: "screen", animation: "g-rgb-b 0.75s ease-in-out forwards" }} />
+          <div className="absolute inset-0" style={{ background: "rgba(0,120,255,0.28)", mixBlendMode: "screen", animation: "g-rgb-b 1.3s ease-in-out forwards" }} />
 
           {/* Scanline sweep beam */}
-          <div className="absolute left-0 right-0 h-[3px]" style={{ background: "rgba(255,255,255,0.55)", boxShadow: "0 0 18px rgba(255,255,255,0.7), 0 0 40px rgba(74,109,255,0.5)", animation: "g-scanline 0.55s 0.05s linear forwards" }} />
+          <div className="absolute left-0 right-0 h-[3px]" style={{ background: "rgba(255,255,255,0.55)", boxShadow: "0 0 18px rgba(255,255,255,0.7), 0 0 40px rgba(74,109,255,0.5)", animation: "g-scanline 1.0s 0.1s linear forwards" }} />
 
           {/* Glitch bars */}
-          <div className="absolute left-0 right-0 h-7" style={{ top: "27%", background: "rgba(74,109,255,0.2)", animation: "g-bar 0.55s 0.08s ease-out forwards" }} />
-          <div className="absolute left-0 right-0 h-3" style={{ top: "54%", background: "rgba(224,64,251,0.18)", animation: "g-bar 0.45s 0.16s ease-out forwards" }} />
-          <div className="absolute left-0 right-0 h-2" style={{ top: "73%", background: "rgba(0,230,118,0.15)", animation: "g-bar 0.4s 0.24s ease-out forwards" }} />
+          <div className="absolute left-0 right-0 h-7" style={{ top: "27%", background: "rgba(74,109,255,0.2)", animation: "g-bar 1.0s 0.15s ease-out forwards" }} />
+          <div className="absolute left-0 right-0 h-3" style={{ top: "54%", background: "rgba(224,64,251,0.18)", animation: "g-bar 0.8s 0.3s ease-out forwards" }} />
+          <div className="absolute left-0 right-0 h-2" style={{ top: "73%", background: "rgba(0,230,118,0.15)", animation: "g-bar 0.7s 0.45s ease-out forwards" }} />
 
           {/* Centre arcade reveal */}
-          <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ animation: "g-text-in 0.65s 0.22s ease-out both" }}>
+          <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ animation: "g-text-in 1.1s 0.4s ease-out both" }}>
             <div className="text-[80px] leading-none mb-4">🕹️</div>
             <h2
               className="text-[64px] font-black tracking-[0.22em] leading-none"
@@ -124,7 +124,7 @@ export default function Home() {
           </div>
 
           {/* Scanlines texture */}
-          <div className="absolute inset-0" style={{ backgroundImage: "repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.18) 2px,rgba(0,0,0,0.18) 4px)", animation: "g-darken 0.3s ease-out forwards" }} />
+          <div className="absolute inset-0" style={{ backgroundImage: "repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.18) 2px,rgba(0,0,0,0.18) 4px)", animation: "g-darken 0.55s ease-out forwards" }} />
         </div>
       )}
       <div className="pt-10 pb-5 text-center">
