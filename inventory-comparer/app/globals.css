@@ -3,3 +3,61 @@
 body {
   font-family: "Segoe UI", sans-serif;
 }
+
+@keyframes g-darken {
+  0%   { opacity: 0; }
+  40%  { opacity: 0.96; }
+  100% { opacity: 1; }
+}
+
+@keyframes g-rgb-r {
+  0%   { transform: translateX(0) skewX(0deg); opacity: 0; }
+  12%  { transform: translateX(-12px) skewX(-1.2deg); opacity: 1; }
+  28%  { transform: translateX(8px)  skewX(0.6deg);  opacity: 0.85; }
+  50%  { transform: translateX(-5px); opacity: 0.55; }
+  70%  { transform: translateX(3px);  opacity: 0.25; }
+  100% { transform: translateX(0);    opacity: 0; }
+}
+
+@keyframes g-rgb-b {
+  0%   { transform: translateX(0) skewX(0deg); opacity: 0; }
+  12%  { transform: translateX(12px)  skewX(1.2deg);  opacity: 1; }
+  28%  { transform: translateX(-8px) skewX(-0.6deg); opacity: 0.85; }
+  50%  { transform: translateX(5px);  opacity: 0.55; }
+  70%  { transform: translateX(-3px); opacity: 0.25; }
+  100% { transform: translateX(0);    opacity: 0; }
+}
+
+@keyframes g-scanline {
+  0%   { transform: translateY(-4px); }
+  100% { transform: translateY(100vh); }
+}
+
+@keyframes g-bar {
+  0%   { transform: scaleX(0); transform-origin: left; opacity: 0; }
+  18%  { transform: scaleX(1); opacity: 0.9; }
+  65%  { opacity: 0.45; }
+  100% { opacity: 0; }
+}
+
+@keyframes g-text-in {
+  0%   { opacity: 0; transform: scale(0.35) translateY(30px); filter: blur(16px); }
+  45%  { opacity: 1; transform: scale(1.08) translateY(-5px); filter: blur(0); }
+  70%  { transform: scale(0.96) translateY(0); }
+  100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes g-shake {
+  0%, 100% { transform: translateX(0) skewX(0deg); }
+  10%  { transform: translateX(-5px) skewX(-0.6deg); }
+  22%  { transform: translateX(5px)  skewX(0.6deg); }
+  34%  { transform: translateX(-3px) skewX(-0.3deg); }
+  46%  { transform: translateX(3px); }
+  58%  { transform: translateX(-2px) skewX(-0.2deg); }
+  70%  { transform: translateX(2px); }
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-8px); }
+}
