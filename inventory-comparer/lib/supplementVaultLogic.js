@@ -336,12 +336,14 @@ function readAETradingFile(file) {
   let colMemo = -1;
   let colAmount = -1;
   let colType = -1;
+  let colNo = -1;
 
   for (let c = 0; c < headers.length; c++) {
     const h = String(headers[c] ?? '').trim().toLowerCase();
     if ((h === 'memo' || h.includes('memo')) && colMemo < 0) colMemo = c;
     else if ((h === 'amount' || h.includes('amount')) && colAmount < 0) colAmount = c;
     else if ((h === 'type' || h.includes('type')) && colType < 0) colType = c;
+    else if ((h === 'no.' || h === 'no' || h === 'number') && colNo < 0) colNo = c;
   }
 
   if (colMemo < 0 || colAmount < 0) return entries;
@@ -355,8 +357,9 @@ function readAETradingFile(file) {
     }
     const memo = String(rowArr[colMemo] ?? '').trim();
     const amount = parseDouble(String(rowArr[colAmount] ?? ''));
+    const no = colNo >= 0 ? String(rowArr[colNo] ?? '').trim() : '';
     if (!memo && amount === 0) continue;
-    entries.push({ memo, amount });
+    entries.push({ memo, amount, no });
   }
 
   return entries;
@@ -592,13 +595,13 @@ function writeExtraMerchantsSheet(
 
 function writeMissingCouponSheet(wb, missingEntries) {
   const ws = wb.addWorksheet('Missing Coupon (AE)');
-  const headerRow = ws.addRow(['Memo', 'Amount']);
+  const headerRow = ws.addRow(['No.', 'Memo', 'Amount']);
   headerRow.eachCell((cell) => {
     cell.font = { bold: true };
   });
   for (const entry of missingEntries) {
-    const row = ws.addRow([entry.memo, entry.amount]);
-    row.getCell(2).numFmt = '#,##0.00';
+    const row = ws.addRow([entry.no || '', entry.memo, entry.amount]);
+    row.getCell(3).numFmt = '#,##0.00';
   }
 }
 
