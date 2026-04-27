@@ -55,7 +55,7 @@ const tools = [
     key: "cosmetics-stock",
     href: "/cosmetics-stock-comparer",
     icon: "🏪",
-    title: "Cosmetics Stock Comparer",
+    title: "Stock Comparer",
     description: "Find Cosmetics.lk products with zero stock and check if other shops have them",
     color: "#00897b",
   },

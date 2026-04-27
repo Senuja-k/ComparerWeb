@@ -73,7 +73,7 @@ function parseInventoryFile(buffer) {
   const shopCol   = findColumnIndex(sheet, headerRow, 'Shop Name');
   const statusCol = findColumnIndex(sheet, headerRow, 'Product_Status');
   const qtyCol    = findColumnIndex(sheet, headerRow, 'Inventory Quantity');
-  const titleCol  = findColumnIndex(sheet, headerRow, 'Title');
+  const titleCol  = findColumnIndex(sheet, headerRow, 'Product Title');
 
   if (skuCol  === -1) throw new Error('File is missing a "SKU" column');
   if (shopCol === -1) throw new Error('File is missing a "Shop Name" column');
