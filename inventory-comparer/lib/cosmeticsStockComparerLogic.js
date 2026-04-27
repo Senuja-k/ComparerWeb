@@ -20,6 +20,23 @@ function getShopPriority(shopNameLower) {
   return 3;
 }
 
+// ── Short display names for the report ────────────────────────────────────────
+
+const SHOP_DISPLAY_NAMES = {
+  'cosmetics.lk - pevi trading - web':              'Pevi',
+  'cosmetics.lk - chami trading - web':             'Chami',
+  'cosmetics.lk - spk trading lanka pvt ltd - web': 'SPK',
+  'cosmetics.lk - kiribathgoda shop':               'Kiribathgoda',
+  'cosmetics.lk - pepiliyana shop':                 'Pepiliyana',
+  'cosmetics.lk - maharagama shop':                 'Maharagama',
+  'cosmetics.lk - one galle face outlet':           'OGF',
+  'cosmetics.lk - cool planet outlet':              'Cool Planet',
+};
+
+function displayShopName(shopName) {
+  return SHOP_DISPLAY_NAMES[shopName.toLowerCase()] ?? shopName;
+}
+
 // ── Cell helpers ───────────────────────────────────────────────────────────────
 
 function getCellValue(sheet, row, col) {
@@ -193,7 +210,7 @@ export async function generateCosmeticsStockReport(inventoryFile) {
   headerRow.height = 22;
 
   function formatShopList(shops) {
-    return shops.map((s) => s.shopName).join('\n');
+    return shops.map((s) => displayShopName(s.shopName)).join('\n');
   }
 
   function formatQtyList(shops) {
