@@ -7,6 +7,7 @@ export async function POST(request) {
 
     const orderEntries = formData.getAll("orderFiles");
     const couponEntry = formData.get("couponFile");
+    const aeEntry = formData.get("aeFile");
     const targetEntry = formData.get("targetFile");
 
     const daysRemainingOnline = Number(formData.get("daysRemainingOnline") || 0);
@@ -47,6 +48,7 @@ export async function POST(request) {
     const reportBuffer = await generateSupplementVaultReport({
       orderFiles,
       couponFile,
+      aeFile: aeEntry ? { name: aeEntry.name, buffer: Buffer.from(await aeEntry.arrayBuffer()) } : null,
       targetFile,
       daysRemainingOnline,
       daysRemainingOutlet,

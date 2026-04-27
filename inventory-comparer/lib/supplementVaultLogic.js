@@ -5,7 +5,7 @@ import { restoreChartsFromOriginal } from './xlsxChartPreserver.js';
 // ===== Interfaces removed (TypeScript only) =====
 
 function totalSale(s) {
-  return s.originsSale + s.svSale;
+  return s.originsSale + s.svSale + (s.aeSale || 0);
 }
 
 // ===== Date Parsing =====
@@ -76,6 +76,17 @@ function normalizeCode(s) {
   t = t.replace(/^=+/, '');
   t = t.replace(/^"|"$/g, '');
   return t.trim().toLowerCase();
+}
+
+// Like normalizeCode but also strips hyphens — for AE Trading memo matching (MER-110 → mer110)
+function normalizeAECode(s) {
+  if (!s) return '';
+  let t = s.trim();
+  t = t.replace(/^=+/, '');
+  t = t.replace(/^"|"$/g, '');
+  t = t.trim().toLowerCase();
+  t = t.replace(/-/g, '');
+  return t;
 }
 
 // Strip spaces, dots, hyphens, slashes and lowercase for fuzzy name comparison
@@ -296,6 +307,61 @@ function readCouponFile(file) {
   return coupons;
 }
 
+/**
+ * Read an AE Trading export file.
+ * Columns: Type (filter: Invoice only), Memo (coupon/merchant code), Amount (sale total).
+ */
+function readAETradingFile(file) {
+  const entries = [];
+  const wb = XLSX.read(file.buffer, { type: 'buffer' });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  if (!sheet) return entries;
+
+  const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false });
+  if (raw.length === 0) return entries;
+
+  // Find header row — look for a row containing "Memo" and ("Amount" or "Type")
+  let headerRowIdx = -1;
+  for (let r = 0; r < Math.min(raw.length, 15); r++) {
+    const rowVals = raw[r].map((v) => String(v ?? '').trim().toLowerCase());
+    if (rowVals.some((v) => v === 'memo') && rowVals.some((v) => v.includes('amount') || v === 'type')) {
+      headerRowIdx = r;
+      break;
+    }
+  }
+
+  if (headerRowIdx < 0) return entries;
+
+  const headers = raw[headerRowIdx];
+  let colMemo = -1;
+  let colAmount = -1;
+  let colType = -1;
+
+  for (let c = 0; c < headers.length; c++) {
+    const h = String(headers[c] ?? '').trim().toLowerCase();
+    if ((h === 'memo' || h.includes('memo')) && colMemo < 0) colMemo = c;
+    else if ((h === 'amount' || h.includes('amount')) && colAmount < 0) colAmount = c;
+    else if ((h === 'type' || h.includes('type')) && colType < 0) colType = c;
+  }
+
+  if (colMemo < 0 || colAmount < 0) return entries;
+
+  for (let r = headerRowIdx + 1; r < raw.length; r++) {
+    const rowArr = raw[r];
+    // Only include Invoice rows (case-insensitive)
+    if (colType >= 0) {
+      const type = String(rowArr[colType] ?? '').trim().toLowerCase();
+      if (type && type !== 'invoice') continue;
+    }
+    const memo = String(rowArr[colMemo] ?? '').trim();
+    const amount = parseDouble(String(rowArr[colAmount] ?? ''));
+    if (!memo && amount === 0) continue;
+    entries.push({ memo, amount });
+  }
+
+  return entries;
+}
+
 /** Find the header row (actual Excel 0-based row number) that contains "merchant name" */
 function findHeaderRow(grid, startRow, endRow, startCol, endCol) {
   for (let r = startRow; r <= Math.min(endRow, startRow + 10); r++) {
@@ -474,15 +540,15 @@ function writeAllSheet(
 function writeSalesSheet(wb, salesMap) {
   const ws = wb.addWorksheet('Sales');
 
-  const cols = ['Merchant Name', 'Origins Sale', 'SupplementVault Sale', 'Total Sale'];
+  const cols = ['Merchant Name', 'Origins Sale', 'SupplementVault Sale', 'AE Trading Sale', 'Total Sale'];
   const headerRow = ws.addRow(cols);
   headerRow.eachCell((cell) => {
     cell.font = { bold: true };
   });
 
   for (const [name, sales] of salesMap) {
-    const row = ws.addRow([name, sales.originsSale, sales.svSale, totalSale(sales)]);
-    for (let c = 2; c <= 4; c++) {
+    const row = ws.addRow([name, sales.originsSale, sales.svSale, sales.aeSale || 0, totalSale(sales)]);
+    for (let c = 2; c <= 5; c++) {
       row.getCell(c).numFmt = '#,##0.00';
     }
   }
@@ -495,9 +561,10 @@ function writeSalesSheet(wb, salesMap) {
     { formula: `SUM(B${dataStart}:B${dataEnd})` },
     { formula: `SUM(C${dataStart}:C${dataEnd})` },
     { formula: `SUM(D${dataStart}:D${dataEnd})` },
+    { formula: `SUM(E${dataStart}:E${dataEnd})` },
   ]);
   totalRow.getCell(1).font = { bold: true };
-  for (let c = 2; c <= 4; c++) {
+  for (let c = 2; c <= 5; c++) {
     totalRow.getCell(c).font = { bold: true };
     totalRow.getCell(c).numFmt = '#,##0.00';
   }
@@ -509,17 +576,29 @@ function writeExtraMerchantsSheet(
 ) {
   const ws = wb.addWorksheet('Other Merchants');
 
-  const cols = ['Merchant Name', 'Origins Sale', 'SupplementVault Sale', 'Total Sale'];
+  const cols = ['Merchant Name', 'Origins Sale', 'SupplementVault Sale', 'AE Trading Sale', 'Total Sale'];
   const headerRow = ws.addRow(cols);
   headerRow.eachCell((cell) => {
     cell.font = { bold: true };
   });
 
   for (const [name, sales] of extraMerchants) {
-    const row = ws.addRow([name, sales.originsSale, sales.svSale, totalSale(sales)]);
-    for (let c = 2; c <= 4; c++) {
+    const row = ws.addRow([name, sales.originsSale, sales.svSale, sales.aeSale || 0, totalSale(sales)]);
+    for (let c = 2; c <= 5; c++) {
       row.getCell(c).numFmt = '#,##0.00';
     }
+  }
+}
+
+function writeMissingCouponSheet(wb, missingEntries) {
+  const ws = wb.addWorksheet('Missing Coupon (AE)');
+  const headerRow = ws.addRow(['Memo', 'Amount']);
+  headerRow.eachCell((cell) => {
+    cell.font = { bold: true };
+  });
+  for (const entry of missingEntries) {
+    const row = ws.addRow([entry.memo, entry.amount]);
+    row.getCell(2).numFmt = '#,##0.00';
   }
 }
 
@@ -560,6 +639,7 @@ async function fillReportSheet(
   let colTarget = -1;
   let colOriginSale = -1;
   let colSvSale = -1;
+  let colAeSale = -1;
   let colTotalSale = -1;
   let colBalance = -1;
   let colPerDayTarget = -1;
@@ -600,6 +680,12 @@ async function fillReportSheet(
         main.includes('sv '))
     )
       colSvSale = c;
+    if (
+      colAeSale < 0 &&
+      (below.includes('ae trading') || main.includes('ae trading') ||
+        below === 'ae' || main === 'ae')
+    )
+      colAeSale = c;
     if (
       colTotalSale < 0 &&
       ((below.includes('total') && below.includes('sale')) ||
@@ -676,6 +762,7 @@ async function fillReportSheet(
     const NUM_FMT = '#,##0.00;-#,##0.00;"-"';
     const originColRef = colOriginSale >= 0 ? colLetter(colOriginSale) : '';
     const svColRef = colSvSale >= 0 ? colLetter(colSvSale) : '';
+    const aeColRef = colAeSale >= 0 ? colLetter(colAeSale) : '';
     const totalColRef = colTotalSale >= 0 ? colLetter(colTotalSale) : '';
     const targetColRef = colTarget >= 0 ? colLetter(colTarget) : '';
     const balanceColRef = colBalance >= 0 ? colLetter(colBalance) : '';
@@ -688,10 +775,14 @@ async function fillReportSheet(
     if (colSvSale >= 0) {
       writeCell(row.getCell(colSvSale + 1), svSale, NUM_FMT);
     }
+    if (colAeSale >= 0) {
+      writeCell(row.getCell(colAeSale + 1), sales ? (sales.aeSale || 0) : 0, NUM_FMT);
+    }
     if (colTotalSale >= 0 && originColRef && svColRef) {
+      const aeFormulaPart = aeColRef ? `+${aeColRef}${excelRowNum}` : '';
       writeCell(
         row.getCell(colTotalSale + 1),
-        { formula: `(${originColRef}${excelRowNum}+${svColRef}${excelRowNum})` },
+        { formula: `(${originColRef}${excelRowNum}+${svColRef}${excelRowNum}${aeFormulaPart})` },
         NUM_FMT
       );
     }
@@ -984,6 +1075,7 @@ export async function generateSupplementVaultReport(
   const {
     orderFiles,
     couponFile,
+    aeFile,
     targetFile,
     daysRemainingOnline,
     daysRemainingOutlet,
@@ -1150,6 +1242,48 @@ export async function generateSupplementVaultReport(
     dmSales.svSale += unmatchedSV;
   }
 
+  // 5b. Process AE Trading file
+  // Build AE-specific code map (hyphens stripped for broader matching: MER-110 = MER110)
+  const codeToMerchantAE = new Map();
+  for (const mc of coupons) {
+    if (mc.discountCode && mc.discountCode.trim()) {
+      const normCode = normalizeAECode(mc.discountCode);
+      if (!codeToMerchantAE.has(normCode)) codeToMerchantAE.set(normCode, mc);
+    }
+  }
+
+  const missingCouponEntries = [];
+  if (aeFile) {
+    const aeEntries = readAETradingFile(aeFile);
+    for (const entry of aeEntries) {
+      // Normalize memo: strip hyphens and lowercase
+      let normMemo = normalizeAECode(entry.memo);
+      let mc = codeToMerchantAE.get(normMemo);
+
+      // Fallback: try to extract a MER code pattern from within the memo
+      if (!mc) {
+        const merMatch = entry.memo.match(/\bmer-?\d+\b/i);
+        if (merMatch) {
+          normMemo = normalizeAECode(merMatch[0]);
+          mc = codeToMerchantAE.get(normMemo);
+        }
+      }
+
+      if (mc && mc.targetName) {
+        const merchantKey = mc.targetName;
+        let sales = merchantSalesMap.get(merchantKey);
+        if (!sales) {
+          sales = { originsSale: 0, svSale: 0, aeSale: 0 };
+          merchantSalesMap.set(merchantKey, sales);
+        }
+        if (!sales.aeSale) sales.aeSale = 0;
+        sales.aeSale += entry.amount;
+      } else {
+        missingCouponEntries.push(entry);
+      }
+    }
+  }
+
   // Identify extra merchants (have sales but not in target)
   const extraMerchants = new Map();
   for (const [name, sales] of merchantSalesMap) {
@@ -1198,6 +1332,10 @@ export async function generateSupplementVaultReport(
   // Add Sheet: Extra Merchants
   if (extraMerchants.size > 0) {
     writeExtraMerchantsSheet(wb, extraMerchants);
+  }
+
+  if (missingCouponEntries.length > 0) {
+    writeMissingCouponSheet(wb, missingCouponEntries);
   }
 
   // Write to buffer
