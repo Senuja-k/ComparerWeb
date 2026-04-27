@@ -21,7 +21,9 @@ function getCellString(sheet, row, col) {
 // ── SKU normalisation: replace underscores with dashes ────────────────────────
 
 function normaliseSku(sku) {
-  return sku.replace(/_/g, '-');
+  let s = sku.replace(/_/g, '-');
+  if (s.toUpperCase().startsWith('OGF-')) s = s.slice(4);
+  return s;
 }
 
 // ── Find column index by header name ──────────────────────────────────────────
