@@ -12,26 +12,32 @@ const EPAD_X = 14;
 const EPAD_Y = 12;
 
 const makeState = () => ({
-  phase: "idle", // idle | running | over | win
+  phase: "idle",
   score: 0,
   lives: 3,
+  wave: 0,
   player: { x: W / 2 - 20, y: H - 55, w: 40, h: 28, shootCooldown: 0 },
   bullets: [],
   eBullets: [],
-  enemies: (() => {
-    const arr = [];
-    for (let r = 0; r < ROWS; r++)
-      for (let c = 0; c < COLS; c++)
-        arr.push({ x: 56 + c * (EW + EPAD_X), y: 50 + r * (EH + EPAD_Y), w: EW, h: EH, alive: true, type: r });
-    return arr;
-  })(),
+  enemies: [],
   dir: 1,
   moveTimer: 0,
   shootTimer: 0,
   explosions: [],
   invincTimer: 0,
   frame: 0,
+  waveFlash: 0,
 });
+
+function buildEnemies(wave) {
+  const rows = Math.min(2 + wave, 6);
+  const cols = Math.min(6 + wave, 12);
+  const arr = [];
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++)
+      arr.push({ x: 40 + c * (EW + EPAD_X), y: 44 + r * (EH + EPAD_Y), w: EW, h: EH, alive: true, type: r % 4, hp: 1 + Math.floor(wave / 3) });
+  return arr;
+}
 
 // Deterministic star positions
 const STARS = Array.from({ length: 90 }, (_, i) => ({
@@ -97,6 +103,8 @@ export default function SpaceShooter() {
         g.frame++;
         const p = g.player;
 
+        if (g.waveFlash > 0) g.waveFlash--;
+
         // Player movement
         if (keysRef.current["ArrowLeft"]) p.x = Math.max(0, p.x - 5);
         if (keysRef.current["ArrowRight"]) p.x = Math.min(W - p.w, p.x + 5);
@@ -118,9 +126,16 @@ export default function SpaceShooter() {
         // Enemy movement
         const alive = g.enemies.filter((e) => e.alive);
         if (alive.length === 0) {
-          g.phase = "win";
+          // Wave cleared — start next wave
+          g.wave++;
+          g.enemies = buildEnemies(g.wave);
+          g.waveFlash = 150;
+          g.dir = 1;
+          g.moveTimer = 0;
+          // Bonus life every 3 waves
+          if (g.wave % 3 === 0) g.lives = Math.min(g.lives + 1, 6);
         } else {
-          const speedBoost = Math.floor((COLS * ROWS - alive.length) / 3);
+          const speedBoost = Math.floor((g.enemies.length - alive.length) / 3) + g.wave * 2;
           g.moveTimer++;
           if (g.moveTimer >= Math.max(4, 28 - speedBoost * 3)) {
             g.moveTimer = 0;
@@ -138,12 +153,14 @@ export default function SpaceShooter() {
             for (const e of alive) e.x += g.dir * 10;
           }
 
-          // Enemy shoot
+          // Enemy shoot — faster every wave
           g.shootTimer++;
-          if (g.shootTimer >= 50) {
+          if (g.shootTimer >= Math.max(15, 50 - g.wave * 3)) {
             g.shootTimer = 0;
-            const shooter = alive[Math.floor(Math.random() * alive.length)];
-            g.eBullets.push({ x: shooter.x + shooter.w / 2 - 2, y: shooter.y + shooter.h, w: 4, h: 10 });
+            const shooters = alive.slice(0, Math.min(1 + Math.floor(g.wave / 2), 4));
+            for (const shooter of shooters.sort(() => Math.random() - 0.5).slice(0, 1 + Math.floor(g.wave / 3))) {
+              g.eBullets.push({ x: shooter.x + shooter.w / 2 - 2, y: shooter.y + shooter.h, w: 4, h: 10 });
+            }
           }
 
           // Player bullet vs enemy
@@ -151,10 +168,13 @@ export default function SpaceShooter() {
             for (const e of g.enemies) {
               if (!e.alive) continue;
               if (b.x < e.x + e.w && b.x + b.w > e.x && b.y < e.y + e.h && b.y + b.h > e.y) {
-                e.alive = false;
+                e.hp--;
                 b.y = -200;
-                g.score += (ROWS - e.type) * 10;
-                g.explosions.push({ x: e.x + e.w / 2, y: e.y + e.h / 2, r: 0, maxR: 22, cr: 255, cg: 180, cb: 50 });
+                if (e.hp <= 0) {
+                  e.alive = false;
+                  g.score += (4 - (e.type % 4)) * 10 * g.wave;
+                  g.explosions.push({ x: e.x + e.w / 2, y: e.y + e.h / 2, r: 0, maxR: 22, cr: 255, cg: 180, cb: 50 });
+                }
               }
             }
           }
@@ -227,21 +247,28 @@ export default function SpaceShooter() {
       ctx.fillStyle = "#fff";
       ctx.textAlign = "left";
       ctx.fillText(`SCORE: ${g.score}`, 16, 26);
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#aef";
+      ctx.fillText(`WAVE ${g.wave}`, W / 2, 26);
       ctx.textAlign = "right";
       ctx.fillStyle = "#ff5252";
       ctx.fillText(Array.from({ length: Math.max(0, g.lives) }, () => "♥").join(" "), W - 16, 26);
 
-      // Score legend (top right of enemy grid)
-      ctx.font = "11px monospace";
-      ctx.fillStyle = "#666";
-      ctx.textAlign = "left";
-      ctx.fillText("= 40 pts", 66, 20);
-      ctx.fillStyle = ENEMY_COLORS[0][0];
-      ctx.fillRect(56, 10, 8, 8);
-      ctx.fillStyle = "#666";
-      ctx.fillText("= 30 pts", 66, 34);
-      ctx.fillStyle = ENEMY_COLORS[1][0];
-      ctx.fillRect(56, 24, 8, 8);
+      // Wave clear banner
+      if (g.waveFlash > 80) {
+        const t = Math.min(1, (g.waveFlash - 80) / 30);
+        ctx.globalAlpha = t;
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.fillRect(W / 2 - 200, H / 2 - 38, 400, 68);
+        ctx.fillStyle = "#00e676";
+        ctx.font = "bold 28px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText(`◆  WAVE ${g.wave}  ◆`, W / 2, H / 2 - 8);
+        ctx.fillStyle = "#aaa";
+        ctx.font = "13px monospace";
+        ctx.fillText(`${g.enemies.filter(e => e.alive).length} enemies • ${g.enemies.length} total`, W / 2, H / 2 + 20);
+        ctx.globalAlpha = 1;
+      }
 
       // Phase overlays
       ctx.textAlign = "center";
@@ -254,9 +281,12 @@ export default function SpaceShooter() {
         ctx.fillStyle = "#aaa";
         ctx.font = "15px monospace";
         ctx.fillText("← → to move   •   SPACE to shoot", W / 2, H / 2 + 2);
+        ctx.fillStyle = "#aef";
+        ctx.font = "13px monospace";
+        ctx.fillText("Waves get harder — more rows, faster enemies, tougher HP", W / 2, H / 2 + 24);
         ctx.fillStyle = "#00e676";
         ctx.font = "bold 18px monospace";
-        ctx.fillText("▶  Press SPACE to Start  ◀", W / 2, H / 2 + 48);
+        ctx.fillText("▶  Press SPACE to Start  ◀", W / 2, H / 2 + 58);
       } else if (g.phase === "over") {
         ctx.fillStyle = "rgba(0,0,0,0.65)";
         ctx.fillRect(0, 0, W, H);
@@ -265,19 +295,7 @@ export default function SpaceShooter() {
         ctx.fillText("GAME OVER", W / 2, H / 2 - 24);
         ctx.fillStyle = "#fff";
         ctx.font = "20px monospace";
-        ctx.fillText(`SCORE: ${g.score}`, W / 2, H / 2 + 18);
-        ctx.fillStyle = "#aaa";
-        ctx.font = "14px monospace";
-        ctx.fillText("Press SPACE to Play Again", W / 2, H / 2 + 58);
-      } else if (g.phase === "win") {
-        ctx.fillStyle = "rgba(0,0,0,0.65)";
-        ctx.fillRect(0, 0, W, H);
-        ctx.fillStyle = "#00e676";
-        ctx.font = "bold 38px monospace";
-        ctx.fillText("YOU WIN! 🎉", W / 2, H / 2 - 24);
-        ctx.fillStyle = "#fff";
-        ctx.font = "20px monospace";
-        ctx.fillText(`SCORE: ${g.score}`, W / 2, H / 2 + 18);
+        ctx.fillText(`SCORE: ${g.score}  •  Wave: ${g.wave}`, W / 2, H / 2 + 18);
         ctx.fillStyle = "#aaa";
         ctx.font = "14px monospace";
         ctx.fillText("Press SPACE to Play Again", W / 2, H / 2 + 58);
@@ -295,9 +313,17 @@ export default function SpaceShooter() {
         const g = gameRef.current;
         if (g.phase === "idle") {
           g.phase = "running";
-        } else if (g.phase === "over" || g.phase === "win") {
-          gameRef.current = { ...makeState(), phase: "running" };
-          keysRef.current["Space"] = false; // prevent instant shot on restart
+          g.wave = 1;
+          g.enemies = buildEnemies(1);
+          g.waveFlash = 150;
+        } else if (g.phase === "over") {
+          const ns = makeState();
+          ns.phase = "running";
+          ns.wave = 1;
+          ns.enemies = buildEnemies(1);
+          ns.waveFlash = 150;
+          gameRef.current = ns;
+          keysRef.current["Space"] = false;
         }
       }
     };
