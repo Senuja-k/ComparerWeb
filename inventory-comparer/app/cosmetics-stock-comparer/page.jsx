@@ -8,12 +8,14 @@ export default function CosmeticsStockComparerPage() {
   const [inventoryFile, setInventoryFile] = useState([]);
   const [status, setStatus] = useState("Ready to process file");
   const [progress, setProgress] = useState(0);
+  const [threshold, setThreshold] = useState("0");
 
   const canGenerate = inventoryFile.length > 0;
 
   async function handleGenerate() {
     const formData = new FormData();
     formData.append("inventoryFile", inventoryFile[0]);
+    formData.append("threshold", threshold === "" ? 0 : Number(threshold));
 
     setStatus("Processing... Please wait.");
     setProgress(30);
@@ -52,9 +54,20 @@ export default function CosmeticsStockComparerPage() {
       <p className="text-center text-[#787878] max-w-[650px] mb-10">
         Drop the <b className="text-[#00897b]">Inventory Status</b> file below.
         <br />
-        Products at <b>0 or negative</b> stock on Cosmetics.lk will be checked against
+        Products at or below the stock threshold you set will be checked against
         other shops in priority order.
       </p>
+
+      <div className="w-full max-w-[600px] mb-6">
+        <label className="block text-sm font-semibold text-[#1e1e1e] mb-1">Stock Threshold</label>
+        <p className="text-xs text-[#787878] mb-2">Flag products with stock at or below this number (e.g. 0 means 0 or negative).</p>
+        <input
+          type="number"
+          value={threshold}
+          onChange={(e) => setThreshold(e.target.value)}
+          className="w-full border border-[#d0d0d0] rounded-[10px] px-4 py-2 text-base focus:outline-none focus:border-[#00897b]"
+        />
+      </div>
 
       <div className="w-full max-w-[600px] mb-8">
         <DropZone

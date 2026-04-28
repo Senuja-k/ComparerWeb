@@ -147,7 +147,9 @@ export async function generateContinueDenyReport(cosmeticsFile, supplementFile) 
 
     const { policy, productStatus } = cosmeticsEntry;
     const isDraft = productStatus.toLowerCase() === 'draft';
-    const flagged = available > 0 && policy.toLowerCase() === 'deny';
+    const flagged =
+      (available > 0 && policy.toLowerCase() === 'deny') ||
+      (available <= 0 && policy.toLowerCase() === 'continue');
 
     const row = {
       sku: cosmeticsEntry.sku,

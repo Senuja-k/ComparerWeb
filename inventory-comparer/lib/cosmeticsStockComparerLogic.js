@@ -78,7 +78,7 @@ function normaliseSku(sku) {
 //   mainRows  — SKU→{ sku, qty, productTitle } for Cosmetics.lk Active rows with qty ≤ 0
 //   otherRows — Map<normalisedSku, Array<{ shopName, qty }>> for all other shops
 
-function parseInventoryFile(buffer) {
+function parseInventoryFile(buffer, threshold = 0) {
   const workbook = XLSX.read(buffer, { type: 'buffer' });
   const sheetName = workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
@@ -123,9 +123,9 @@ function parseInventoryFile(buffer) {
     const isMainShop = !shopName.includes('-') && shopLower === 'cosmetics.lk';
 
     if (isMainShop) {
-      // Only Active, only out-of-stock (qty ≤ 0)
+      // Only Active, only out-of-stock (qty ≤ threshold)
       if (status.toLowerCase() !== 'active') continue;
-      if (qty > 0) continue;
+      if (qty > threshold) continue;
       // Last-write wins if duplicate SKU
       mainMap.set(sku.toLowerCase(), { sku, qty, productTitle: title });
     } else {
@@ -142,8 +142,8 @@ function parseInventoryFile(buffer) {
 
 // ── Main report generator ─────────────────────────────────────────────────────
 
-export async function generateCosmeticsStockReport(inventoryFile) {
-  const { mainMap, otherMap } = parseInventoryFile(inventoryFile.buffer);
+export async function generateCosmeticsStockReport(inventoryFile, threshold = 0) {
+  const { mainMap, otherMap } = parseInventoryFile(inventoryFile.buffer, threshold);
 
   // Build result rows
   const results = [];
