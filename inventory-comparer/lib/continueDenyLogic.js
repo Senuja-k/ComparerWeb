@@ -39,6 +39,16 @@ function findColumnIndex(sheet, headerRow, headerName) {
   return -1;
 }
 
+// ── Workbook reader (supports .xlsx, .xls, .csv) ────────────────────────────
+
+function readWorkbook(buffer, fileName) {
+  const ext = (fileName || '').split('.').pop().toLowerCase();
+  if (ext === 'csv') {
+    return XLSX.read(buffer.toString('utf8'), { type: 'string' });
+  }
+  return XLSX.read(buffer, { type: 'buffer' });
+}
+
 // ── Parse Cosmetics file ───────────────────────────────────────────────────────
 // Required columns: SKU, Inventory Policy, Shop Name, Product_Status
 // Filters applied at this stage:
@@ -47,8 +57,8 @@ function findColumnIndex(sheet, headerRow, headerName) {
 // included so that Draft SKUs are not incorrectly reported as missing.
 // SKUs are normalised: underscores replaced with dashes.
 
-function parseCosmeticsFile(buffer) {
-  const workbook = XLSX.read(buffer, { type: 'buffer' });
+function parseCosmeticsFile(buffer, fileName = '') {
+  const workbook = readWorkbook(buffer, fileName);
   const sheetName = workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
 
@@ -97,8 +107,8 @@ function parseCosmeticsFile(buffer) {
 // ── Parse Supplement file ──────────────────────────────────────────────────────
 // Expected columns: SKU, Available
 
-function parseSupplementFile(buffer) {
-  const workbook = XLSX.read(buffer, { type: 'buffer' });
+function parseSupplementFile(buffer, fileName = '') {
+  const workbook = readWorkbook(buffer, fileName);
   const sheetName = workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
 
@@ -131,8 +141,8 @@ function parseSupplementFile(buffer) {
 // ── Main report generator ──────────────────────────────────────────────────────
 
 export async function generateContinueDenyReport(cosmeticsFile, supplementFile) {
-  const cosmeticsMap = parseCosmeticsFile(cosmeticsFile.buffer);
-  const supplementRows = parseSupplementFile(supplementFile.buffer);
+  const cosmeticsMap = parseCosmeticsFile(cosmeticsFile.buffer, cosmeticsFile.name);
+  const supplementRows = parseSupplementFile(supplementFile.buffer, supplementFile.name);
 
   const matched = [];      // Active rows
   const draftMatched = []; // Draft rows — present in Cosmetics but not Active

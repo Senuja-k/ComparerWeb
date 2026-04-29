@@ -62,19 +62,21 @@ export default function ContinueDenyPage() {
         <DropZone
           title="Cosmetics.lk File"
           icon="💄"
-          description="Drop the Cosmetics.lk Excel file here (.xlsx, .xls)"
+          description="Drop the Cosmetics.lk file here (.xlsx, .xls, .csv)"
           files={cosmeticsFile}
           onFilesChange={setCosmeticsFile}
           multiple={false}
+          accept=".xlsx,.xls,.csv"
           accentColor="#e53935"
         />
         <DropZone
           title="SupplementVault File"
           icon="💊"
-          description="Drop the SupplementVault Excel file here (.xlsx, .xls)"
+          description="Drop the SupplementVault file here (.xlsx, .xls, .csv)"
           files={supplementFile}
           onFilesChange={setSupplementFile}
           multiple={false}
+          accept=".xlsx,.xls,.csv"
           accentColor="#f57c00"
         />
       </div>

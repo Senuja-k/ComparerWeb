@@ -73,10 +73,11 @@ export default function CosmeticsStockComparerPage() {
         <DropZone
           title="Inventory Status File"
           icon="📦"
-          description="Drop the inventory status Excel file here (.xlsx, .xls)"
+          description="Drop the inventory status file here (.xlsx, .xls, .csv)"
           files={inventoryFile}
           onFilesChange={setInventoryFile}
           multiple={false}
+          accept=".xlsx,.xls,.csv"
           accentColor="#00897b"
         />
       </div>

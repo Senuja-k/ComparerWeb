@@ -104,15 +104,19 @@ function makeState() {
 const AI_COLORS = ["#f55", "#55f", "#fa0"];
 const AI_OFFSETS = [0.33, 0.66, 0.5];
 const DIFFICULTY_SPEEDS = {
-  easy:   [0.00090, 0.00080, 0.00085],
-  medium: [0.00138, 0.00122, 0.00130],
-  hard:   [0.00178, 0.00170, 0.00184],
+  //                        red        blue       orange
+  easy:   [0.00130, 0.00120, 0.00125], // forgiving – player has ~6s cushion per lap
+  medium: [0.00172, 0.00162, 0.00168], // competitive – tight but winnable
+  hard:   [0.00212, 0.00204, 0.00220], // near-perfect required – any mistake costs the race
 };
 
-function makeAIState(speeds = DIFFICULTY_SPEEDS.medium) {
+// Each extra lap the AI gets proportionally faster, compounding the challenge.
+const LAP_SPEED_MULT = { 1: 0.85, 3: 1.00, 5: 1.20, 10: 1.45 };
+
+function makeAIState(speeds = DIFFICULTY_SPEEDS.medium, lapMult = 1.0) {
   return AI_OFFSETS.map((offset, i) => ({
     t: offset,
-    speed: speeds[i],
+    speed: speeds[i] * lapMult,
     color: AI_COLORS[i],
     lap: 0,
     finished: false,
@@ -131,12 +135,13 @@ export default function RacingGame() {
   const animRef = useRef(null);
 
   const startGame = (laps, diff) => {
-    settingsRef.current = { lapCount: laps, difficulty: diff };
+    const lapMult = LAP_SPEED_MULT[laps] ?? 1.0;
+    settingsRef.current = { lapCount: laps, difficulty: diff, lapMult };
     const ns = makeState();
     ns.phase = "running";
     ns.lapStartTime = 0;
     stateRef.current = ns;
-    aiRef.current = makeAIState(DIFFICULTY_SPEEDS[diff]);
+    aiRef.current = makeAIState(DIFFICULTY_SPEEDS[diff], lapMult);
     setScreen("game");
   };
 
@@ -306,7 +311,11 @@ export default function RacingGame() {
           ai.t = (ai.t + ai.speed) % 1;
           if (prevAiT > 0.9 && ai.t < 0.1) {
             ai.lap++;
-            if (ai.lap >= settingsRef.current.lapCount) ai.finished = true;
+            if (ai.lap >= settingsRef.current.lapCount) {
+              ai.finished = true;
+              // First AI to finish ends the race for the player
+              if (g.phase === "running") g.phase = "lose";
+            }
           }
           const pos = getPosOnCurve(ai.t);
           const pos2 = getPosOnCurve(ai.t + 1 / CURVE_LEN);
@@ -406,14 +415,29 @@ export default function RacingGame() {
         ctx.fillRect(0, 0, W, H);
         ctx.fillStyle = "#ffe000";
         ctx.font = "bold 40px monospace";
-        ctx.fillText("FINISH! 🏁", W / 2, H / 2 - 28);
+        ctx.fillText("YOU WIN! 🏁", W / 2, H / 2 - 32);
         ctx.fillStyle = "#fff";
         ctx.font = "18px monospace";
         const best = g.bestLap ? (g.bestLap / 60).toFixed(2) + "s" : "--";
-        ctx.fillText(`Score: ${g.score}  •  Best Lap: ${best}`, W / 2, H / 2 + 18);
+        ctx.fillText(`P${g.finishPos} Finish  •  Score: ${g.score}  •  Best Lap: ${best}`, W / 2, H / 2 + 12);
         ctx.fillStyle = "#aaa";
         ctx.font = "14px monospace";
-        ctx.fillText("Press SPACE to Race Again", W / 2, H / 2 + 56);
+        ctx.fillText("Press SPACE to Race Again  •  ESC for Settings", W / 2, H / 2 + 52);
+      } else if (g.phase === "lose") {
+        ctx.fillStyle = "rgba(0,0,0,0.78)";
+        ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = "#f44";
+        ctx.font = "bold 40px monospace";
+        ctx.fillText("OVERTAKEN! 💨", W / 2, H / 2 - 32);
+        ctx.fillStyle = "#fff";
+        ctx.font = "18px monospace";
+        const doneLaps = Math.min(g.lap + 1, settingsRef.current.lapCount);
+        ctx.fillText(`Lap ${doneLaps} of ${settingsRef.current.lapCount}  •  Score: ${g.score}`, W / 2, H / 2 + 12);
+        ctx.fillStyle = "#f99";
+        ctx.font = "14px monospace";
+        ctx.fillText("An AI crossed the finish line before you!", W / 2, H / 2 + 40);
+        ctx.fillStyle = "#aaa";
+        ctx.fillText("Press SPACE to Try Again  •  ESC for Settings", W / 2, H / 2 + 64);
       }
 
       animRef.current = requestAnimationFrame(loop);
@@ -423,14 +447,15 @@ export default function RacingGame() {
       keysRef.current[e.code] = true;
       if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.code)) e.preventDefault();
       const g = stateRef.current;
-      if (e.code === "Space" && g.phase === "win") {
+      if (e.code === "Space" && (g.phase === "win" || g.phase === "lose")) {
         const ns = makeState();
         ns.phase = "running";
         ns.lapStartTime = 0;
         stateRef.current = ns;
-        aiRef.current = makeAIState(DIFFICULTY_SPEEDS[settingsRef.current.difficulty]);
+        const { difficulty, lapMult = 1.0 } = settingsRef.current;
+        aiRef.current = makeAIState(DIFFICULTY_SPEEDS[difficulty], lapMult);
       }
-      if (e.code === "Escape" && (g.phase === "win" || g.phase === "running")) {
+      if (e.code === "Escape" && (g.phase === "win" || g.phase === "lose" || g.phase === "running")) {
         stateRef.current = makeState();
         aiRef.current = makeAIState();
         setScreen("setup");
@@ -465,13 +490,14 @@ export default function RacingGame() {
             <div className="w-full">
               <p className="text-xs tracking-[0.4em] mb-2 text-center" style={{ color: "#ffe00088" }}>NUMBER OF LAPS</p>
               <div className="flex gap-2 justify-center">
-                {[1, 3, 5, 10].map(n => (
+                {[{n:1,icon:""},{n:3,icon:""},{n:5,icon:"🔥"},{n:10,icon:"💀"}].map(({n,icon}) => (
                   <button key={n} onClick={() => setLapCount(n)}
-                    className="w-14 h-10 rounded-lg font-black text-sm tracking-wider border-2 transition-all"
+                    className="w-14 h-10 rounded-lg font-black text-sm tracking-wider border-2 transition-all flex flex-col items-center justify-center leading-tight"
                     style={lapCount === n
                       ? { background: "#ffe000", color: "#000", borderColor: "#ffe000" }
                       : { background: "transparent", color: "#ffe000", borderColor: "#ffe00050" }}>
-                    {n}
+                    <span>{n}</span>
+                    {icon && <span className="text-[9px] leading-none">{icon}</span>}
                   </button>
                 ))}
               </div>
@@ -482,9 +508,9 @@ export default function RacingGame() {
               <p className="text-xs tracking-[0.4em] mb-2 text-center" style={{ color: "#ffe00088" }}>DIFFICULTY</p>
               <div className="flex gap-2">
                 {[
-                  { id: "easy",   label: "EASY", desc: "Slow AI",  col: "#00e676" },
-                  { id: "medium", label: "MED",  desc: "Fair",     col: "#ffe000" },
-                  { id: "hard",   label: "HARD", desc: "Fast AI",  col: "#f55" },
+                  { id: "easy",   label: "EASY", desc: "Forgiving",    col: "#00e676" },
+                  { id: "medium", label: "MED",  desc: "Competitive",  col: "#ffe000" },
+                  { id: "hard",   label: "HARD", desc: "Near-Flawless", col: "#f55" },
                 ].map(d => (
                   <button key={d.id} onClick={() => setDifficulty(d.id)}
                     className="flex-1 py-2 rounded-lg font-black text-xs tracking-wider border-2 transition-all flex flex-col items-center gap-0.5"
@@ -504,7 +530,8 @@ export default function RacingGame() {
               style={{ background: "#ffe000", color: "#000", borderColor: "#ffe000" }}>
               ▶ START RACE
             </button>
-            <p className="text-[10px] tracking-widest" style={{ color: "#333" }}>WASD / ↑↓←→ Steer  •  ESC Change Settings</p>
+            <p className="text-[10px] tracking-widest text-center" style={{ color: "#555" }}>WASD / ↑↓←→ Steer  •  ESC Change Settings</p>
+            <p className="text-[10px] tracking-widest text-center" style={{ color: "#f5540088" }}>⚠ More laps = faster AI</p>
           </div>
         </div>
       )}

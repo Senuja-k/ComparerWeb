@@ -65,6 +65,16 @@ function findColumnIndex(sheet, headerRow, headerName) {
   return -1;
 }
 
+// ── Workbook reader (supports .xlsx, .xls, .csv) ────────────────────────────
+
+function readWorkbook(buffer, fileName) {
+  const ext = (fileName || '').split('.').pop().toLowerCase();
+  if (ext === 'csv') {
+    return XLSX.read(buffer.toString('utf8'), { type: 'string' });
+  }
+  return XLSX.read(buffer, { type: 'buffer' });
+}
+
 // ── SKU normalisation ─────────────────────────────────────────────────────────
 
 function normaliseSku(sku) {
@@ -78,8 +88,8 @@ function normaliseSku(sku) {
 //   mainRows  — SKU→{ sku, qty, productTitle } for Cosmetics.lk Active rows with qty ≤ 0
 //   otherRows — Map<normalisedSku, Array<{ shopName, qty }>> for all other shops
 
-function parseInventoryFile(buffer, threshold = 0) {
-  const workbook = XLSX.read(buffer, { type: 'buffer' });
+function parseInventoryFile(buffer, threshold = 0, fileName = '') {
+  const workbook = readWorkbook(buffer, fileName);
   const sheetName = workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
 
@@ -143,7 +153,7 @@ function parseInventoryFile(buffer, threshold = 0) {
 // ── Main report generator ─────────────────────────────────────────────────────
 
 export async function generateCosmeticsStockReport(inventoryFile, threshold = 0) {
-  const { mainMap, otherMap } = parseInventoryFile(inventoryFile.buffer, threshold);
+  const { mainMap, otherMap } = parseInventoryFile(inventoryFile.buffer, threshold, inventoryFile.name);
 
   // Build result rows
   const results = [];
@@ -151,7 +161,6 @@ export async function generateCosmeticsStockReport(inventoryFile, threshold = 0)
   for (const [skuLower, mainEntry] of mainMap) {
     const otherShops = otherMap.get(skuLower) || [];
 
-    // Split by priority and only keep shops that have qty > 0
     const p1 = otherShops
       .filter((s) => getShopPriority(s.shopName.toLowerCase()) === 1 && s.qty > 0)
       .sort((a, b) => a.shopName.localeCompare(b.shopName));
@@ -186,23 +195,25 @@ export async function generateCosmeticsStockReport(inventoryFile, threshold = 0)
   // ── Build Excel workbook ─────────────────────────────────────────────────
 
   const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet('Stock Report');
+  const ws = workbook.addWorksheet('Stock Report');
 
-  sheet.columns = [
-    { header: 'SKU', key: 'sku', width: 28 },
-    { header: 'Product Title', key: 'title', width: 36 },
-    { header: 'Cosmetics.lk Qty', key: 'cosmeticsQty', width: 18 },
-    { header: 'Priority 1 Shop(s)', key: 'p1shops', width: 46 },
-    { header: 'Priority 1 Qty', key: 'p1qty', width: 16 },
-    { header: 'Priority 2 Shop(s)', key: 'p2shops', width: 36 },
-    { header: 'Priority 2 Qty', key: 'p2qty', width: 16 },
-    { header: 'Priority 3 Shop(s)', key: 'p3shops', width: 46 },
-    { header: 'Priority 3 Qty', key: 'p3qty', width: 16 },
-    { header: 'Stock Available Elsewhere', key: 'available', width: 26 },
+  // Col indices (1-based):
+  // 1=SKU, 2=Title, 3=CosmeticsQty, 4=P1Shop, 5=P1Qty, 6=P2Shop, 7=P2Qty, 8=P3Shop, 9=P3Qty, 10=Available
+  ws.columns = [
+    { header: 'SKU',                       key: 'sku',         width: 28 },
+    { header: 'Product Title',             key: 'title',       width: 36 },
+    { header: 'Cosmetics.lk Qty',          key: 'cosmeticsQty',width: 18 },
+    { header: 'Priority 1 Shop(s)',        key: 'p1shops',     width: 26 },
+    { header: 'Priority 1 Qty',            key: 'p1qty',       width: 14 },
+    { header: 'Priority 2 Shop(s)',        key: 'p2shops',     width: 26 },
+    { header: 'Priority 2 Qty',            key: 'p2qty',       width: 14 },
+    { header: 'Priority 3 Shop(s)',        key: 'p3shops',     width: 26 },
+    { header: 'Priority 3 Qty',            key: 'p3qty',       width: 14 },
+    { header: 'Stock Available Elsewhere', key: 'available',   width: 26 },
   ];
 
   // Header styling
-  const headerRow = sheet.getRow(1);
+  const headerRow = ws.getRow(1);
   headerRow.eachCell((cell) => {
     cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF00695C' } };
@@ -211,64 +222,78 @@ export async function generateCosmeticsStockReport(inventoryFile, threshold = 0)
   });
   headerRow.height = 22;
 
-  function formatShopList(shops) {
-    return shops.map((s) => displayShopName(s.shopName)).join('\n');
-  }
-
-  function formatQtyList(shops) {
-    return shops.map((s) => String(s.qty)).join('\n');
-  }
+  let currentExcelRow = 2;
 
   for (const row of results) {
-    const p1ShopText = formatShopList(row.priority1);
-    const p1QtyText  = formatQtyList(row.priority1);
-    const p2ShopText = formatShopList(row.priority2);
-    const p2QtyText  = formatQtyList(row.priority2);
-    const p3ShopText = formatShopList(row.priority3);
-    const p3QtyText  = formatQtyList(row.priority3);
+    const numRows = Math.max(row.priority1.length, row.priority2.length, row.priority3.length, 1);
+    const startRow = currentExcelRow;
+    const endRow   = currentExcelRow + numRows - 1;
 
-    const dataRow = sheet.addRow({
-      sku: row.sku,
-      title: row.productTitle,
-      cosmeticsQty: row.cosmeticsQty,
-      p1shops: p1ShopText,
-      p1qty: p1QtyText,
-      p2shops: p2ShopText,
-      p2qty: p2QtyText,
-      p3shops: p3ShopText,
-      p3qty: p3QtyText,
-      available: row.hasAnyStock ? 'YES' : 'NO',
-    });
+    for (let i = 0; i < numRows; i++) {
+      const excelRow = ws.getRow(currentExcelRow);
 
-    // Wrap text in multi-value cells
-    ['p1shops', 'p1qty', 'p2shops', 'p2qty', 'p3shops', 'p3qty'].forEach((key) => {
-      dataRow.getCell(key).alignment = { wrapText: true, vertical: 'top' };
-    });
+      // Shared (merged) columns — only write on first sub-row
+      if (i === 0) {
+        excelRow.getCell(1).value  = row.sku;
+        excelRow.getCell(2).value  = row.productTitle;
+        excelRow.getCell(3).value  = row.cosmeticsQty;
+        excelRow.getCell(10).value = row.hasAnyStock ? 'YES' : 'NO';
+      }
 
-    dataRow.getCell('cosmeticsQty').alignment = { horizontal: 'center', vertical: 'middle' };
-    dataRow.getCell('available').alignment = { horizontal: 'center', vertical: 'middle' };
+      // Priority 1
+      const p1 = row.priority1[i];
+      excelRow.getCell(4).value = p1 ? displayShopName(p1.shopName) : null;
+      excelRow.getCell(5).value = p1 ? p1.qty : null;
 
-    if (row.hasAnyStock) {
-      // Green highlight — stock found elsewhere
-      dataRow.getCell('available').fill = {
-        type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC8E6C9' },
-      };
-      dataRow.getCell('available').font = { bold: true, color: { argb: 'FF1B5E20' } };
-    } else {
-      // Red highlight — no stock anywhere
-      dataRow.getCell('available').fill = {
-        type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFCDD2' },
-      };
-      dataRow.getCell('available').font = { bold: true, color: { argb: 'FFB71C1C' } };
-      dataRow.eachCell((cell, colNumber) => {
-        if (colNumber <= 3) {
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF9C4' } };
-        }
+      // Priority 2
+      const p2 = row.priority2[i];
+      excelRow.getCell(6).value = p2 ? displayShopName(p2.shopName) : null;
+      excelRow.getCell(7).value = p2 ? p2.qty : null;
+
+      // Priority 3
+      const p3 = row.priority3[i];
+      excelRow.getCell(8).value = p3 ? displayShopName(p3.shopName) : null;
+      excelRow.getCell(9).value = p3 ? p3.qty : null;
+
+      [4, 6, 8].forEach((c) => {
+        excelRow.getCell(c).alignment = { horizontal: 'left', vertical: 'middle' };
       });
+      [5, 7, 9].forEach((c) => {
+        excelRow.getCell(c).alignment = { horizontal: 'center', vertical: 'middle' };
+      });
+
+      excelRow.commit();
+      currentExcelRow++;
+    }
+
+    // Merge shared columns across all sub-rows for this SKU
+    if (numRows > 1) {
+      ws.mergeCells(startRow, 1, endRow, 1);  // SKU
+      ws.mergeCells(startRow, 2, endRow, 2);  // Product Title
+      ws.mergeCells(startRow, 3, endRow, 3);  // Cosmetics.lk Qty
+      ws.mergeCells(startRow, 10, endRow, 10); // Stock Available Elsewhere
+    }
+
+    // Alignment for merged cells (always applied)
+    ws.getCell(startRow, 1).alignment  = { vertical: 'middle', horizontal: 'left' };
+    ws.getCell(startRow, 2).alignment  = { vertical: 'middle', horizontal: 'left' };
+    ws.getCell(startRow, 3).alignment  = { horizontal: 'center', vertical: 'middle' };
+    ws.getCell(startRow, 10).alignment = { horizontal: 'center', vertical: 'middle' };
+
+    const availableCell = ws.getCell(startRow, 10);
+    if (row.hasAnyStock) {
+      availableCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFC8E6C9' } };
+      availableCell.font = { bold: true, color: { argb: 'FF1B5E20' } };
+    } else {
+      availableCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFCDD2' } };
+      availableCell.font = { bold: true, color: { argb: 'FFB71C1C' } };
+      for (let c = 1; c <= 3; c++) {
+        ws.getCell(startRow, c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF9C4' } };
+      }
     }
   }
 
-  sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: 10 } };
+  ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: 10 } };
 
   const buffer = await workbook.xlsx.writeBuffer();
   return buffer;
