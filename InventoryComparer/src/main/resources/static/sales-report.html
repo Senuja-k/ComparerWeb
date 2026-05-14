@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sales Report</title>
+    <style>
+        body {
+            font-family: "Segoe UI", sans-serif;
+            margin: 0;
+            background: linear-gradient(180deg, #f8fafc, #f5f0ff);
+            color: #1e1e1e;
+            text-align: center;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .header { padding: 40px 20px 20px; }
+        .header h1 {
+            font-size: 36px;
+            background: linear-gradient(90deg, #e040fb, #7c4dff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin: 0;
+        }
+        .header p { font-size: 15px; color: #787878; margin-top: 8px; }
+        .cards-container {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 0 20px 20px;
+        }
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+            max-width: 800px;
+            width: 100%;
+        }
+        .card {
+            background: white;
+            border: 3px solid transparent;
+            border-radius: 16px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+            padding: 30px;
+            text-align: left;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 140px;
+        }
+        .card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 6px 14px rgba(0,0,0,0.1);
+        }
+        .card .text { max-width: 75%; }
+        .card h2 { font-size: 20px; margin: 0 0 8px 0; display: flex; align-items: center; gap: 8px; }
+        .card p { color: #787878; margin: 0; font-size: 14px; line-height: 1.4; }
+        .arrow { font-size: 22px; font-weight: bold; color: #7c4dff; }
+        .back-link {
+            display: inline-block;
+            margin-top: 20px;
+            margin-bottom: 30px;
+            color: #7c4dff;
+            text-decoration: none;
+            font-size: 15px;
+        }
+        .back-link:hover { text-decoration: underline; }
+        footer { padding: 15px; color: #aaa; font-size: 14px; }
+    </style>
+</head>
+<body>
+<div class="header">
+    <h1>📈 Sales Report</h1>
+    <p>Select the platform to generate sales reports</p>
+</div>
+
+<div class="cards-container">
+    <div class="cards">
+        <div class="card" style="border-color: #e040fb;" onclick="window.location.href='supplement-vault.html'">
+            <div class="text">
+                <h2><span>💊</span> SupplementVault.lk</h2>
+                <p>Generate monthly sales performance reports for SupplementVault merchants</p>
+            </div>
+            <div class="arrow">→</div>
+        </div>
+
+        <div class="card" style="border-color: #7c4dff;" onclick="window.location.href='cosmetics-coming-soon.html'">
+            <div class="text">
+                <h2><span>💄</span> Cosmetics.lk</h2>
+                <p>Sales reporting for Cosmetics.lk merchants</p>
+            </div>
+            <div class="arrow">→</div>
+        </div>
+    </div>
+</div>
+
+<a class="back-link" href="index.html">← Back to Dashboard</a>
+
+<footer>
+    <p>© 2025 Inventory Comparison Tool</p>
+</footer>
+</body>
+</html>
