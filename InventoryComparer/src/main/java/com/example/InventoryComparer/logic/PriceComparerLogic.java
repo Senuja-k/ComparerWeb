@@ -603,7 +603,7 @@ public class PriceComparerLogic {
                         // For OGF files, calculate percentage difference
                         double referenceValue = item.referenceCompareAtPrice() > 0 ?
                                 item.referenceCompareAtPrice() : item.referencePrice();
-                        double percentageDiff = ((priceUsed - referenceValue) / referenceValue) * 100;
+                        double percentageDiff = ((priceUsed - referenceValue) / priceUsed) * 100;
 
                         // NEW: Store OGF percentage for display
                         item.setOgfPercentageDiff(percentageDiff);
